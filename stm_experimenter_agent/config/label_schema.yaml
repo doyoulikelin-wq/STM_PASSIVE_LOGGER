@@ -1,0 +1,23 @@
+version: 1
+fields:
+  surface_quality:
+    type: single
+    options: [flat_terrace, tilted_plane, rough_surface, contaminated, step_edge_dense, unstable_area, unknown]
+  image_quality:
+    type: ordinal
+    options: [excellent, usable, questionable, unusable]
+  tip_state:
+    type: single
+    options: [good_tip, dirty_tip, double_tip, blunt_tip, unstable_tip, crashed_tip_suspected, unknown]
+  artifact_tags:
+    type: multi
+    options: [stripe_noise, drift, blur, line_jump, double_image, feedback_instability, saturation, low_contrast, contamination]
+  research_value_label:
+    type: single
+    options: [high_value, medium_value, low_value, not_relevant, unknown]
+  research_value_score: {type: float, range: [0.0, 1.0]}
+  next_action:
+    type: single
+    options: [fine_scan_roi, zoom_in, move_region, adjust_params, tip_check, recommend_repair, run_sts, run_cits, run_didv_mapping, stop, ask_human]
+  confidence: {type: float, range: [0.0, 1.0]}
+  reason_text: {type: text}

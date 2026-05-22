@@ -1,0 +1,8 @@
+# Nanonis TCP Programming Interface 端口配置
+# 注意：3364 是 LabVIEW VI Server，不可用于 nanonis_spm。
+# 6555-6557 是 Simulator/Sim-Engine 内部端口。
+host: 127.0.0.1
+primary_port: 6501
+fallback_ports: [6502, 6503, 65004]
+connect_timeout_s: 5.0
+recv_timeout_s: 5.0

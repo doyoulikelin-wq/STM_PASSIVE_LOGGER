@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>STM Annotation</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+         color: #222; background: #fafafa; }
+  header { background: #1f2937; color: #f9fafb; padding: 8px 16px;
+           display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 16px; margin: 0; }
+  header input, header select { padding: 4px 8px; border-radius: 4px;
+           border: 1px solid #4b5563; background: #374151; color: #f9fafb; }
+  header .stats { margin-left: auto; font-size: 13px; opacity: 0.85; }
+  main { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 44px); }
+  #scanList { border-right: 1px solid #e5e7eb; overflow-y: auto; background: #fff; }
+  .scan-item { padding: 10px 12px; border-bottom: 1px solid #f3f4f6;
+               cursor: pointer; font-size: 13px; }
+  .scan-item:hover { background: #f3f4f6; }
+  .scan-item.active { background: #dbeafe; }
+  .scan-item.labelled-by-me { border-left: 3px solid #10b981; }
+  .scan-item.labelled-by-others { border-left: 3px solid #f59e0b; }
+  .scan-meta { color: #6b7280; font-size: 11px; margin-top: 2px; }
+  #detail { overflow-y: auto; padding: 16px 24px; }
+  #detail h2 { margin: 0 0 8px; font-size: 15px; color: #374151; }
+  #preview { max-width: 520px; max-height: 520px; border: 1px solid #d1d5db;
+             background: #000; display: block; margin-bottom: 12px; }
+  .scan-info { font-size: 12px; color: #4b5563; margin-bottom: 12px;
+               background: #f9fafb; padding: 8px 12px; border-radius: 4px; }
+  form { display: grid; grid-template-columns: 180px 1fr; gap: 8px 12px;
+         max-width: 720px; align-items: start; }
+  form label { font-size: 13px; padding-top: 4px; }
+  form select, form input[type=text], form input[type=number], form textarea {
+         width: 100%; padding: 4px 8px; font-family: inherit; font-size: 13px;
+         border: 1px solid #d1d5db; border-radius: 4px; }
+  form textarea { min-height: 60px; resize: vertical; }
+  fieldset.tags { grid-column: 2 / 3; border: 1px solid #e5e7eb; border-radius: 4px;
+                  padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+  fieldset.tags legend { display: none; }
+  fieldset.tags label { font-weight: normal; font-size: 12px; padding-top: 0; }
+  .actions { grid-column: 1 / 3; display: flex; gap: 8px; margin-top: 12px; }
+  button { padding: 6px 14px; font-size: 13px; border-radius: 4px; cursor: pointer;
+           border: 1px solid #2563eb; background: #2563eb; color: #fff; }
+  button.secondary { background: #fff; color: #2563eb; }
+  button.danger { background: #fff; color: #b91c1c; border-color: #b91c1c; }
+  #existingLabels { margin-top: 20px; max-width: 720px; }
+  .label-card { border: 1px solid #e5e7eb; border-radius: 4px; padding: 10px;
+                margin-bottom: 8px; background: #fff; font-size: 12px; }
+  .label-card .who { font-weight: bold; color: #1f2937; }
+  .label-card .review { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #e5e7eb; }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px;
+           margin-left: 6px; }
+  .badge.accept { background: #d1fae5; color: #065f46; }
+  .badge.dispute { background: #fee2e2; color: #991b1b; }
+  .badge.need_redo { background: #fef3c7; color: #92400e; }
+  .badge.pending { background: #e5e7eb; color: #4b5563; }
+  #toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px;
+           border-radius: 4px; color: #fff; font-size: 13px; opacity: 0;
+           transition: opacity 0.3s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  #toast.ok { background: #10b981; }
+  #toast.err { background: #dc2626; }
+  .empty { padding: 40px; color: #9ca3af; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>STM Annotation</h1>
+  <label>标注者:
+    <input id="annotator" type="text" placeholder="姓名 (必填)" />
+  </label>
+  <label>Session:
+    <select id="sessionFilter"><option value="">所有</option></select>
+  </label>
+  <label>显示:
+    <select id="modeFilter">
+      <option value="unlabeled">仅我未标</option>
+      <option value="labeled">仅我已标</option>
+      <option value="all">全部</option>
+    </select>
+  </label>
+  <button class="secondary" id="refreshBtn">刷新</button>
+  <span class="stats" id="stats"></span>
+</header>
+<main>
+  <aside id="scanList"><div class="empty">输入标注者姓名以加载</div></aside>
+  <section id="detail"><div class="empty">从左侧选一张扫描</div></section>
+</main>
+<div id="toast"></div>
+
+<script>
+const state = {
+  annotator: localStorage.getItem("stm_annotator") || "",
+  schema: null,
+  sessions: [],
+  scans: [],
+  currentScanId: null,
+};
+
+const $ = (id) => document.getElementById(id);
+const toast = (msg, ok = true) => {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = `show ${ok ? "ok" : "err"}`;
+  setTimeout(() => { t.className = ""; }, 2200);
+};
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!r.ok) {
+    let detail = await r.text();
+    try { detail = JSON.parse(detail).error || detail; } catch {}
+    throw new Error(detail || `HTTP ${r.status}`);
+  }
+  return r.json();
+}
+
+async function loadSchema() {
+  state.schema = await api("/api/schema");
+}
+
+async function loadSessions() {
+  state.sessions = await api("/api/sessions");
+  const sel = $("sessionFilter");
+  sel.innerHTML = '<option value="">所有 sessions</option>' +
+    state.sessions.map(s => {
+      const lbl = `${s.session_id}  (${s.n_scans} scans, ${s.sample_id || "?"})`;
+      return `<option value="${s.session_id}">${lbl}</option>`;
+    }).join("");
+}
+
+async function loadStats() {
+  if (!state.annotator) { $("stats").textContent = ""; return; }
+  const s = await api(`/api/stats?annotator=${encodeURIComponent(state.annotator)}`);
+  $("stats").textContent =
+    `总 ${s.total_scans} 张 · 我已标 ${s.labelled} · 未标 ${s.unlabelled}` +
+    ` · 待 review ${s.labels_awaiting_review}`;
+}
+
+async function loadScans() {
+  if (!state.annotator) {
+    $("scanList").innerHTML = '<div class="empty">先填标注者姓名</div>';
+    return;
+  }
+  const params = new URLSearchParams({
+    annotator: state.annotator,
+    mode: $("modeFilter").value,
+    limit: "300",
+  });
+  const sid = $("sessionFilter").value;
+  if (sid) params.set("session_id", sid);
+  state.scans = await api(`/api/scans?${params}`);
+  renderScanList();
+}
+
+function renderScanList() {
+  const root = $("scanList");
+  if (!state.scans.length) {
+    root.innerHTML = '<div class="empty">没有符合条件的扫描</div>';
+    return;
+  }
+  root.innerHTML = state.scans.map(s => {
+    const cls = ["scan-item"];
+    if (s.scan_id === state.currentScanId) cls.push("active");
+    if (s.labelled_by_me) cls.push("labelled-by-me");
+    else if (s.n_labels > 0) cls.push("labelled-by-others");
+    const t = new Date(s.captured_ts * 1000).toLocaleString();
+    return `<div class="${cls.join(" ")}" data-id="${s.scan_id}">
+      <div>${s.scan_id}</div>
+      <div class="scan-meta">${t} · bias=${(s.bias_V ?? "?")} V · ${s.pixels_x}×${s.pixels_y}
+        · 共 ${s.n_labels} 个标签</div>
+    </div>`;
+  }).join("");
+  root.querySelectorAll(".scan-item").forEach(el => {
+    el.addEventListener("click", () => selectScan(el.dataset.id));
+  });
+}
+
+async function selectScan(scanId) {
+  state.currentScanId = scanId;
+  renderScanList();
+  const scan = await api(`/api/scan/${encodeURIComponent(scanId)}`);
+  renderDetail(scan);
+}
+
+function fieldInput(name, def, currentVal) {
+  if (def.type === "single" || def.type === "ordinal") {
+    const opts = ['<option value="">--</option>'].concat(
+      def.options.map(o => {
+        const sel = (currentVal === o) ? " selected" : "";
+        return `<option value="${o}"${sel}>${o}</option>`;
+      }));
+    return `<select name="${name}">${opts.join("")}</select>`;
+  }
+  if (def.type === "multi") {
+    const cur = Array.isArray(currentVal) ? currentVal : [];
+    return `<fieldset class="tags" data-name="${name}"><legend>${name}</legend>` +
+      def.options.map(o => {
+        const chk = cur.includes(o) ? " checked" : "";
+        return `<label><input type="checkbox" value="${o}"${chk}/> ${o}</label>`;
+      }).join("") + "</fieldset>";
+  }
+  if (def.type === "float") {
+    const [lo, hi] = def.range || [0, 1];
+    const v = (currentVal ?? "");
+    return `<input type="number" name="${name}" step="0.05" min="${lo}" max="${hi}" value="${v}" />`;
+  }
+  if (def.type === "text") {
+    return `<textarea name="${name}">${currentVal ?? ""}</textarea>`;
+  }
+  return `<input type="text" name="${name}" value="${currentVal ?? ""}" />`;
+}
+
+function renderDetail(scan) {
+  const myLabel = scan.labels.find(l => l.annotator === state.annotator) || {};
+  const fields = state.schema.fields;
+  const order = [
+    "image_quality", "tip_state", "surface_quality", "artifact_tags",
+    "research_value_label", "research_value_score", "next_action",
+    "confidence", "reason_text",
+  ];
+  const formRows = order.map(name => {
+    const def = fields[name];
+    if (!def) return "";
+    return `<label>${name}</label>${fieldInput(name, def, myLabel[name])}`;
+  }).join("");
+
+  const otherLabels = scan.labels.filter(l => l.annotator !== state.annotator);
+  const labelCards = otherLabels.map(renderLabelCard).join("") || "<em>暂无他人标签</em>";
+  const myCard = myLabel.annotator
+    ? `<h3 style="margin-top:24px">我的当前标签</h3>${renderLabelCard(myLabel)}`
+    : "";
+
+  $("detail").innerHTML = `
+    <h2>${scan.scan_id}</h2>
+    <div class="scan-info">
+      session=<b>${scan.session_id}</b> · sample=${scan.sample_id || "?"}
+      · tip=${scan.tip_id || "?"} · operator=${scan.operator || "?"}<br/>
+      captured=${new Date(scan.captured_ts * 1000).toLocaleString()}
+      · bias=${scan.bias_V} V · setpoint=${scan.setpoint} ${scan.setpoint_unit || ""}
+      · ${scan.pixels_x}×${scan.pixels_y}
+      · range=${(scan.range_x_m * 1e9).toFixed(1)}×${(scan.range_y_m * 1e9).toFixed(1)} nm
+      <br/>sxm: <code>${scan.sxm_path}</code>
+    </div>
+    <img id="preview" src="/preview/${encodeURIComponent(scan.scan_id)}.png"
+         onerror="this.style.display='none';this.insertAdjacentHTML('afterend','<em>(no preview)</em>')"/>
+    <form id="labelForm">
+      ${formRows}
+      <label>annotator_notes<br/><small>(自由备注, review 时可见)</small></label>
+      <textarea name="annotator_notes">${myLabel.annotator_notes ?? ""}</textarea>
+      <div class="actions">
+        <button type="submit">保存我的标签</button>
+        <button type="button" class="secondary" id="nextBtn">保存并下一张 →</button>
+      </div>
+    </form>
+    <div id="existingLabels">
+      <h3 style="margin-top:24px">其他标注者</h3>
+      ${labelCards}
+      ${myCard}
+    </div>
+  `;
+
+  $("labelForm").addEventListener("submit", (e) => { e.preventDefault(); saveLabel(false); });
+  $("nextBtn").addEventListener("click", () => saveLabel(true));
+
+  document.querySelectorAll(".review-form").forEach(f => {
+    f.addEventListener("submit", (e) => {
+      e.preventDefault();
+      submitReview(f.dataset.scanId, f.dataset.annotator, f);
+    });
+  });
+}
+
+function renderLabelCard(l) {
+  const review = l.review_status
+    ? `<span class="badge ${l.review_status}">${l.review_status}</span>`
+    : `<span class="badge pending">未 review</span>`;
+  const fields = ["image_quality", "tip_state", "surface_quality",
+                  "research_value_label", "next_action", "confidence"]
+    .map(k => l[k] != null ? `<b>${k}</b>=${l[k]}` : null)
+    .filter(Boolean).join(" · ");
+  const tags = Array.isArray(l.artifact_tags) && l.artifact_tags.length
+    ? `<div>tags: ${l.artifact_tags.join(", ")}</div>` : "";
+  const notes = l.annotator_notes
+    ? `<div style="margin-top:4px">notes: <i>${escapeHtml(l.annotator_notes)}</i></div>` : "";
+  const updated = new Date(l.updated_ts * 1000).toLocaleString();
+  const reviewBlock = l.review_status
+    ? `<div class="review"><b>reviewed by ${l.reviewer || "?"}</b>
+         (${new Date(l.reviewed_ts * 1000).toLocaleString()}):
+         ${escapeHtml(l.review_comment || "")}</div>`
+    : `<form class="review-form review" data-scan-id="${l.scan_id}" data-annotator="${l.annotator}">
+         <select name="status">
+           <option value="">-- 设置 review --</option>
+           <option value="accept">accept</option>
+           <option value="dispute">dispute</option>
+           <option value="need_redo">need_redo</option>
+         </select>
+         <input name="comment" type="text" placeholder="review 评论 (可选)" style="width:50%"/>
+         <button type="submit" class="secondary">提交 review</button>
+       </form>`;
+  return `<div class="label-card">
+    <div><span class="who">${l.annotator}</span> ${review}
+      <span style="float:right;color:#9ca3af">${updated}</span></div>
+    <div>${fields}</div>
+    ${tags}
+    ${notes}
+    ${reviewBlock}
+  </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+async function saveLabel(advance) {
+  if (!state.annotator) { toast("请先填标注者姓名", false); return; }
+  if (!state.currentScanId) return;
+  const form = $("labelForm");
+  const fd = new FormData(form);
+  const fields = {};
+  for (const [k, v] of fd.entries()) {
+    if (v !== "" && v != null) fields[k] = v;
+  }
+  // collect multi-select checkboxes
+  form.querySelectorAll("fieldset.tags").forEach(fs => {
+    const name = fs.dataset.name;
+    const vals = Array.from(fs.querySelectorAll("input:checked")).map(i => i.value);
+    fields[name] = vals;
+  });
+  // numeric coercion
+  ["research_value_score", "confidence"].forEach(k => {
+    if (fields[k] != null && fields[k] !== "") fields[k] = parseFloat(fields[k]);
+  });
+  try {
+    await api("/api/label", {
+      method: "POST",
+      body: JSON.stringify({
+        scan_id: state.currentScanId,
+        annotator: state.annotator,
+        fields,
+      }),
+    });
+    toast("已保存");
+    await loadStats();
+    if (advance) {
+      const idx = state.scans.findIndex(s => s.scan_id === state.currentScanId);
+      const next = state.scans.slice(idx + 1).find(s => !s.labelled_by_me)
+                || state.scans[idx + 1];
+      await loadScans();
+      if (next) selectScan(next.scan_id);
+    } else {
+      // re-render so the new label appears under "我的当前标签"
+      selectScan(state.currentScanId);
+    }
+  } catch (e) {
+    toast("保存失败: " + e.message, false);
+  }
+}
+
+async function submitReview(scanId, annotator, form) {
+  if (!state.annotator) { toast("请先填标注者姓名 (作为 reviewer)", false); return; }
+  const fd = new FormData(form);
+  const status = fd.get("status");
+  if (!status) { toast("请选择 review 状态", false); return; }
+  try {
+    await api("/api/review", {
+      method: "POST",
+      body: JSON.stringify({
+        scan_id: scanId,
+        annotator,
+        reviewer: state.annotator,
+        status,
+        comment: fd.get("comment") || null,
+      }),
+    });
+    toast("review 已记录");
+    selectScan(scanId);
+    loadStats();
+  } catch (e) {
+    toast("review 失败: " + e.message, false);
+  }
+}
+
+// -- init ---------------------------------------------------------------
+$("annotator").value = state.annotator;
+$("annotator").addEventListener("change", () => {
+  state.annotator = $("annotator").value.trim();
+  localStorage.setItem("stm_annotator", state.annotator);
+  loadStats(); loadScans();
+});
+$("modeFilter").addEventListener("change", loadScans);
+$("sessionFilter").addEventListener("change", loadScans);
+$("refreshBtn").addEventListener("click", () => { loadStats(); loadScans(); });
+
+(async () => {
+  await loadSchema();
+  await loadSessions();
+  await loadStats();
+  await loadScans();
+})();
+</script>
+</body>
+</html>

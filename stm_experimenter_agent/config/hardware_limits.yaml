@@ -1,0 +1,23 @@
+# 示例值，必须由实验员按实际设备/样品/温度条件确认后再启用。
+# Passive logger 阶段不写硬件，这里仅用于日后 Safety Supervisor。
+bias_V:
+  min: -2.0
+  max: 2.0
+current_pA:
+  min: 1
+  max: 1000
+scan_speed_nm_s:
+  min: 1
+  max: 1000
+feedback_P:
+  min: 0
+  max: 100
+feedback_T_us:
+  min: 1
+  max: 10000
+high_risk_actions:
+  - auto_approach
+  - motor_z_move
+  - bias_pulse
+  - tip_shaper
+  - gentle_contact

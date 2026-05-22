@@ -1,0 +1,8 @@
+# Passive logger 运行时配置
+poll_hz: 1.0                      # 信号轮询频率
+signal_batch_size: 50             # JSONL/SQLite 批写大小
+scan_watch_interval_s: 2.0        # .sxm 目录扫描间隔
+preview_dpi: 100
+preview_cmap: viridis
+data_root: data                   # 相对 cwd，CLI 可覆盖
+log_level: INFO

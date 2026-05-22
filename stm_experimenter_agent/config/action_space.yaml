@@ -1,0 +1,22 @@
+version: 1
+risk_levels:
+  low:
+    - save_data
+    - generate_report
+    - read_parameter
+    - suggest_roi
+    - rescan_default
+    - render_preview
+  medium:
+    - change_scan_size
+    - change_scan_speed
+    - adjust_bias_small
+    - adjust_current_small
+    - propose_sts_point
+  high:
+    - auto_approach
+    - motor_z_move
+    - bias_pulse
+    - tip_shaper
+    - gentle_contact
+    - withdraw
