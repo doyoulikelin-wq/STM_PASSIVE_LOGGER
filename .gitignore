@@ -34,3 +34,6 @@ _live_test*.py
 *.zip
 git-installer.exe
 git-install.inf
+
+# Word lock files
+~$*
