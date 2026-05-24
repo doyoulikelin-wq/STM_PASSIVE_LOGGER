@@ -28,6 +28,10 @@ where = ["."]
 include = ["stm_experimenter_agent*"]
 exclude = ["tests*"]
 
+[tool.setuptools.package-data]
+"stm_experimenter_agent.annotation" = ["index.html"]
+"stm_experimenter_agent.config" = ["*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra -q"
