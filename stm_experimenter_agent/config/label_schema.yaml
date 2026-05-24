@@ -1,5 +1,20 @@
-version: 1
+version: 2
 fields:
+  substrate:
+    label: 衬底/基底
+    type: combo
+    carry_over: true
+    options: [HOPG, Au(111), Ag(111), Cu(111), Si(111), SiO2/Si, mica, graphene, hBN, unknown]
+  thin_film:
+    label: 薄膜
+    type: combo
+    carry_over: true
+    options: [none, Bi2Se3, BP, MoS2, WSe2, hBN, graphene, organic_film, unknown]
+  molecule:
+    label: 分子
+    type: combo
+    carry_over: true
+    options: [none, unknown]
   surface_quality:
     type: single
     options: [flat_terrace, tilted_plane, rough_surface, contaminated, step_edge_dense, unstable_area, unknown]

@@ -24,7 +24,7 @@ from typing import Any, Dict, Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -91,6 +91,9 @@ CREATE TABLE IF NOT EXISTS labels (
     updated_ts           REAL NOT NULL,
 
     surface_quality      TEXT,
+    substrate            TEXT,
+    thin_film            TEXT,
+    molecule             TEXT,
     image_quality        TEXT,
     tip_state            TEXT,
     artifact_tags        TEXT,   -- JSON array
@@ -111,6 +114,12 @@ CREATE TABLE IF NOT EXISTS labels (
 CREATE INDEX IF NOT EXISTS ix_labels_annotator ON labels(annotator);
 CREATE INDEX IF NOT EXISTS ix_labels_review ON labels(review_status);
 """
+
+_LABEL_COLUMN_MIGRATIONS = {
+    "substrate": "ALTER TABLE labels ADD COLUMN substrate TEXT",
+    "thin_film": "ALTER TABLE labels ADD COLUMN thin_film TEXT",
+    "molecule": "ALTER TABLE labels ADD COLUMN molecule TEXT",
+}
 
 
 def _to_jsonable(value: Any) -> Any:
@@ -136,11 +145,22 @@ class DatasetWriter:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.executescript(_SCHEMA)
+        self._ensure_migrations()
         self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self._conn.commit()
 
         # cached JSONL handles per session_id and stream name
         self._jsonl_handles: Dict[tuple, Any] = {}
+
+    def _ensure_migrations(self) -> None:
+        """Apply additive schema migrations for older SQLite datasets."""
+        existing = {
+            row[1]
+            for row in self._conn.execute("PRAGMA table_info(labels)").fetchall()
+        }
+        for column, sql in _LABEL_COLUMN_MIGRATIONS.items():
+            if column not in existing:
+                self._conn.execute(sql)
 
     # -- lifecycle ---------------------------------------------------------
     def close(self) -> None:

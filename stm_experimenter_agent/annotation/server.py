@@ -79,6 +79,11 @@ def _make_handler(store: AnnotationStore, schema: Dict[str, Any]):
                     return self._send_json(200, store.list_sessions())
                 if path == "/api/stats":
                     return self._send_json(200, store.stats(query.get("annotator")))
+                if path == "/api/session-overview":
+                    return self._send_json(200, store.session_overview(
+                        session_id=query.get("session_id") or None,
+                        annotator=query.get("annotator") or None,
+                    ))
                 if path == "/api/scans":
                     return self._send_json(200, store.list_scans(
                         annotator=query.get("annotator"),

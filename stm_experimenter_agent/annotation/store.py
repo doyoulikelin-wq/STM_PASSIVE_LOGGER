@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,6 +27,9 @@ from ..data_collection.dataset_writer import DatasetWriter
 # ``label_schema.yaml`` field names + the extra free-text/review fields.
 _WRITABLE_LABEL_FIELDS = (
     "surface_quality",
+    "substrate",
+    "thin_film",
+    "molecule",
     "image_quality",
     "tip_state",
     "artifact_tags",            # JSON-encoded list
@@ -38,6 +42,18 @@ _WRITABLE_LABEL_FIELDS = (
 )
 
 _REVIEW_STATUSES = ("accept", "dispute", "need_redo")
+
+_DISTRIBUTION_FIELDS = (
+    "substrate",
+    "thin_film",
+    "molecule",
+    "image_quality",
+    "tip_state",
+    "surface_quality",
+    "research_value_label",
+    "next_action",
+    "review_status",
+)
 
 
 class AnnotationStore:
@@ -150,10 +166,121 @@ class AnnotationStore:
             rows = self._conn.execute(
                 "SELECT session_id, start_ts, end_ts, operator, sample_id, tip_id,"
                 "       material,"
-                "       (SELECT COUNT(*) FROM scans s WHERE s.session_id = sessions.session_id) AS n_scans"
+                "       (SELECT COUNT(*) FROM scans s WHERE s.session_id = sessions.session_id) AS n_scans,"
+                "       (SELECT COUNT(DISTINCT l.scan_id) FROM labels l"
+                "          JOIN scans s ON s.scan_id = l.scan_id"
+                "         WHERE s.session_id = sessions.session_id) AS n_labelled_scans"
                 " FROM sessions ORDER BY start_ts DESC"
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def session_overview(
+        self,
+        *,
+        session_id: Optional[str] = None,
+        annotator: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Return per-session annotation progress and label distributions."""
+        where_scan = ["1=1"]
+        scan_params: List[Any] = []
+        if session_id:
+            where_scan.append("s.session_id = ?")
+            scan_params.append(session_id)
+        where_scan_sql = " AND ".join(where_scan)
+
+        where_label = ["1=1"]
+        label_params: List[Any] = []
+        if session_id:
+            where_label.append("s.session_id = ?")
+            label_params.append(session_id)
+        where_label_sql = " AND ".join(where_label)
+
+        with self._lock:
+            session = None
+            if session_id:
+                row = self._conn.execute(
+                    "SELECT * FROM sessions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                session = dict(row) if row else None
+
+            total_scans = self._conn.execute(
+                f"SELECT COUNT(*) FROM scans s WHERE {where_scan_sql}",
+                scan_params,
+            ).fetchone()[0]
+            labelled_scans = self._conn.execute(
+                f"SELECT COUNT(DISTINCT l.scan_id) FROM labels l"
+                f" JOIN scans s ON s.scan_id = l.scan_id WHERE {where_label_sql}",
+                label_params,
+            ).fetchone()[0]
+            total_labels = self._conn.execute(
+                f"SELECT COUNT(*) FROM labels l"
+                f" JOIN scans s ON s.scan_id = l.scan_id WHERE {where_label_sql}",
+                label_params,
+            ).fetchone()[0]
+            pending_review = self._conn.execute(
+                f"SELECT COUNT(*) FROM labels l"
+                f" JOIN scans s ON s.scan_id = l.scan_id"
+                f" WHERE {where_label_sql} AND l.review_status IS NULL",
+                label_params,
+            ).fetchone()[0]
+
+            labelled_by_annotator = None
+            if annotator:
+                labelled_by_annotator = self._conn.execute(
+                    f"SELECT COUNT(*) FROM labels l"
+                    f" JOIN scans s ON s.scan_id = l.scan_id"
+                    f" WHERE {where_label_sql} AND l.annotator = ?",
+                    [*label_params, annotator],
+                ).fetchone()[0]
+
+            rows = self._conn.execute(
+                f"SELECT l.* FROM labels l"
+                f" JOIN scans s ON s.scan_id = l.scan_id WHERE {where_label_sql}",
+                label_params,
+            ).fetchall()
+
+        distributions: Dict[str, Dict[str, int]] = {
+            field: {} for field in _DISTRIBUTION_FIELDS
+        }
+        artifact_counter: Counter[str] = Counter()
+        for row in rows:
+            label = dict(row)
+            for field in _DISTRIBUTION_FIELDS:
+                value = label.get(field)
+                if value is None or value == "":
+                    continue
+                distributions[field][str(value)] = distributions[field].get(str(value), 0) + 1
+            raw_tags = label.get("artifact_tags")
+            if raw_tags:
+                try:
+                    tags = json.loads(raw_tags)
+                except (TypeError, ValueError):
+                    tags = []
+                if isinstance(tags, list):
+                    for tag in tags:
+                        if tag:
+                            artifact_counter[str(tag)] += 1
+
+        distributions["artifact_tags"] = dict(artifact_counter.most_common())
+        return {
+            "session_id": session_id,
+            "session": session,
+            "total_scans": int(total_scans),
+            "labelled_scans": int(labelled_scans),
+            "unlabelled_scans": int(total_scans - labelled_scans),
+            "total_labels": int(total_labels),
+            "labels_awaiting_review": int(pending_review),
+            "annotator": annotator,
+            "labelled_by_annotator": (
+                int(labelled_by_annotator) if labelled_by_annotator is not None else None
+            ),
+            "unlabelled_by_annotator": (
+                int(total_scans - labelled_by_annotator)
+                if labelled_by_annotator is not None else None
+            ),
+            "distributions": distributions,
+        }
 
     def get_scan(self, scan_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:

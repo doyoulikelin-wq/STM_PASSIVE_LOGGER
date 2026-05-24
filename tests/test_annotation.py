@@ -66,6 +66,9 @@ def test_annotation_store_upsert_and_list(tmp_path: Path) -> None:
             annotator="alice",
             fields={
                 "image_quality": "usable",
+                "substrate": "HOPG",
+                "thin_film": "Bi2Se3",
+                "molecule": "PTCDA",
                 "tip_state": "good_tip",
                 "surface_quality": "flat_terrace",
                 "artifact_tags": ["drift", "stripe_noise"],
@@ -75,6 +78,9 @@ def test_annotation_store_upsert_and_list(tmp_path: Path) -> None:
         )
         assert row["annotator"] == "alice"
         assert row["image_quality"] == "usable"
+        assert row["substrate"] == "HOPG"
+        assert row["thin_film"] == "Bi2Se3"
+        assert row["molecule"] == "PTCDA"
         # artifact_tags persisted as JSON
         assert json.loads(row["artifact_tags"]) == ["drift", "stripe_noise"]
         assert row["created_ts"] == row["updated_ts"]
@@ -111,6 +117,15 @@ def test_annotation_store_upsert_and_list(tmp_path: Path) -> None:
         assert stats_alice["total_scans"] == 2
         assert stats_alice["labelled"] == 1
         assert stats_alice["unlabelled"] == 1
+
+        overview = store.session_overview(session_id=sid, annotator="alice")
+        assert overview["total_scans"] == 2
+        assert overview["labelled_scans"] == 1
+        assert overview["labelled_by_annotator"] == 1
+        assert overview["distributions"]["substrate"]["HOPG"] == 1
+        assert overview["distributions"]["thin_film"]["Bi2Se3"] == 1
+        assert overview["distributions"]["molecule"]["PTCDA"] == 1
+        assert overview["distributions"]["artifact_tags"]["drift"] == 1
     finally:
         store.close()
 
@@ -222,17 +237,29 @@ def test_http_endpoints_round_trip(tmp_path: Path) -> None:
             "scan_id": "scanA_aaaa1111",
             "annotator": "alice",
             "fields": {"image_quality": "usable",
+                       "substrate": "Au(111)",
+                       "thin_film": "hBN",
+                       "molecule": "custom_molecule",
                        "artifact_tags": ["drift"],
                        "annotator_notes": "ok"},
         })
         assert status == 200
         assert body["annotator"] == "alice"
+        assert body["substrate"] == "Au(111)"
 
         # Now scanA shows up in 'labeled' for alice
         status, body = _http_json(
             "GET", f"{base}/api/scans?annotator=alice&mode=labeled")
         assert status == 200
         assert {s["scan_id"] for s in body} == {"scanA_aaaa1111"}
+
+        # Session overview includes progress + label distributions
+        status, body = _http_json(
+            "GET", f"{base}/api/session-overview?session_id=20260520_120000_sampleA_tip01&annotator=alice")
+        assert status == 200
+        assert body["total_scans"] == 2
+        assert body["labelled_by_annotator"] == 1
+        assert body["distributions"]["substrate"]["Au(111)"] == 1
 
         # Reviewer flow
         status, body = _http_json("POST", f"{base}/api/review", {

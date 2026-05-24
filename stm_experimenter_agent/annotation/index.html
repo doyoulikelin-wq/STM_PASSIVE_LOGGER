@@ -13,8 +13,20 @@
   header input, header select { padding: 4px 8px; border-radius: 4px;
            border: 1px solid #4b5563; background: #374151; color: #f9fafb; }
   header .stats { margin-left: auto; font-size: 13px; opacity: 0.85; }
-  main { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 44px); }
-  #scanList { border-right: 1px solid #e5e7eb; overflow-y: auto; background: #fff; }
+  main { display: grid; grid-template-columns: 360px 1fr; height: calc(100vh - 44px); }
+  #leftPane { border-right: 1px solid #e5e7eb; background: #fff;
+              display: flex; flex-direction: column; min-width: 0; }
+  #sessionOverview { border-bottom: 1px solid #e5e7eb; padding: 10px 12px;
+                     font-size: 12px; background: #f9fafb; max-height: 260px;
+                     overflow-y: auto; }
+  #sessionOverview h2 { margin: 0 0 6px; font-size: 13px; color: #374151; }
+  .overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .overview-stat { border: 1px solid #e5e7eb; background: #fff; border-radius: 4px; padding: 6px; }
+  .overview-stat b { display: block; font-size: 16px; color: #111827; }
+  .dist-block { margin-top: 8px; }
+  .dist-block strong { display: block; margin-bottom: 2px; color: #374151; }
+  .dist-row { display: flex; justify-content: space-between; gap: 8px; color: #4b5563; }
+  #scanList { overflow-y: auto; background: #fff; flex: 1; min-height: 0; }
   .scan-item { padding: 10px 12px; border-bottom: 1px solid #f3f4f6;
                cursor: pointer; font-size: 13px; }
   .scan-item:hover { background: #f3f4f6; }
@@ -84,7 +96,10 @@
   <span class="stats" id="stats"></span>
 </header>
 <main>
-  <aside id="scanList"><div class="empty">输入标注者姓名以加载</div></aside>
+  <aside id="leftPane">
+    <section id="sessionOverview"><div class="empty">选择 session</div></section>
+    <div id="scanList"><div class="empty">输入标注者姓名以加载</div></div>
+  </aside>
   <section id="detail"><div class="empty">从左侧选一张扫描</div></section>
 </main>
 <div id="toast"></div>
@@ -92,11 +107,15 @@
 <script>
 const state = {
   annotator: localStorage.getItem("stm_annotator") || "",
+  sessionId: localStorage.getItem("stm_session_filter") || "",
+  carryDefaults: JSON.parse(localStorage.getItem("stm_label_carry") || "{}"),
   schema: null,
   sessions: [],
   scans: [],
   currentScanId: null,
 };
+
+const CARRY_FIELDS = ["substrate", "thin_film", "molecule"];
 
 const $ = (id) => document.getElementById(id);
 const toast = (msg, ok = true) => {
@@ -125,9 +144,15 @@ async function loadSessions() {
   const sel = $("sessionFilter");
   sel.innerHTML = '<option value="">所有 sessions</option>' +
     state.sessions.map(s => {
-      const lbl = `${s.session_id}  (${s.n_scans} scans, ${s.sample_id || "?"})`;
+      const lbl = `${s.session_id}  (${s.n_labelled_scans || 0}/${s.n_scans} labelled, ${s.sample_id || "?"})`;
       return `<option value="${s.session_id}">${lbl}</option>`;
     }).join("");
+  if (state.sessionId && state.sessions.some(s => s.session_id === state.sessionId)) {
+    sel.value = state.sessionId;
+  } else {
+    state.sessionId = "";
+    localStorage.removeItem("stm_session_filter");
+  }
 }
 
 async function loadStats() {
@@ -148,10 +173,56 @@ async function loadScans() {
     mode: $("modeFilter").value,
     limit: "300",
   });
-  const sid = $("sessionFilter").value;
+  const sid = state.sessionId || $("sessionFilter").value;
   if (sid) params.set("session_id", sid);
   state.scans = await api(`/api/scans?${params}`);
   renderScanList();
+}
+
+async function loadSessionOverview() {
+  const params = new URLSearchParams();
+  if (state.sessionId) params.set("session_id", state.sessionId);
+  if (state.annotator) params.set("annotator", state.annotator);
+  const overview = await api(`/api/session-overview?${params}`);
+  renderSessionOverview(overview);
+}
+
+function renderSessionOverview(o) {
+  const title = o.session_id || "所有 sessions";
+  const me = o.annotator
+    ? `<div class="overview-stat"><b>${o.labelled_by_annotator ?? 0}</b>我已标</div>`
+    : "";
+  const dist = renderDistributions(o.distributions || {});
+  $("sessionOverview").innerHTML = `
+    <h2>${escapeHtml(title)}</h2>
+    <div class="overview-grid">
+      <div class="overview-stat"><b>${o.total_scans}</b>总图数</div>
+      <div class="overview-stat"><b>${o.labelled_scans}</b>已标图数</div>
+      ${me}
+      <div class="overview-stat"><b>${o.total_labels}</b>标签总数</div>
+      <div class="overview-stat"><b>${o.labels_awaiting_review}</b>待 review</div>
+    </div>
+    ${dist}
+  `;
+}
+
+function renderDistributions(distributions) {
+  const fields = [
+    "substrate", "thin_film", "molecule", "image_quality", "tip_state",
+    "surface_quality", "research_value_label", "next_action", "artifact_tags",
+    "review_status",
+  ];
+  const blocks = fields.map(name => {
+    const items = Object.entries(distributions[name] || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+    if (!items.length) return "";
+    return `<div class="dist-block"><strong>${fieldLabel(name)}</strong>` +
+      items.map(([value, count]) =>
+        `<div class="dist-row"><span>${escapeHtml(value)}</span><span>${count}</span></div>`
+      ).join("") + `</div>`;
+  }).filter(Boolean).join("");
+  return blocks || '<div class="dist-block">暂无标签分布</div>';
 }
 
 function renderScanList() {
@@ -177,6 +248,18 @@ function renderScanList() {
   });
 }
 
+function fieldLabel(name) {
+  const def = state.schema?.fields?.[name];
+  return def?.label || name;
+}
+
+function carryValue(name, def, myLabel) {
+  const existing = myLabel[name];
+  if (existing != null && existing !== "") return existing;
+  if (def?.carry_over) return state.carryDefaults[name] || "";
+  return "";
+}
+
 async function selectScan(scanId) {
   state.currentScanId = scanId;
   renderScanList();
@@ -185,11 +268,19 @@ async function selectScan(scanId) {
 }
 
 function fieldInput(name, def, currentVal) {
+  if (def.type === "combo") {
+    const listId = `list_${name}`;
+    const opts = (def.options || []).map(o =>
+      `<option value="${escapeHtml(String(o))}"></option>`
+    ).join("");
+    return `<input type="text" name="${name}" list="${listId}" value="${escapeHtml(currentVal ?? "")}" />` +
+      `<datalist id="${listId}">${opts}</datalist>`;
+  }
   if (def.type === "single" || def.type === "ordinal") {
     const opts = ['<option value="">--</option>'].concat(
       def.options.map(o => {
         const sel = (currentVal === o) ? " selected" : "";
-        return `<option value="${o}"${sel}>${o}</option>`;
+        return `<option value="${escapeHtml(String(o))}"${sel}>${escapeHtml(String(o))}</option>`;
       }));
     return `<select name="${name}">${opts.join("")}</select>`;
   }
@@ -198,7 +289,7 @@ function fieldInput(name, def, currentVal) {
     return `<fieldset class="tags" data-name="${name}"><legend>${name}</legend>` +
       def.options.map(o => {
         const chk = cur.includes(o) ? " checked" : "";
-        return `<label><input type="checkbox" value="${o}"${chk}/> ${o}</label>`;
+        return `<label><input type="checkbox" value="${escapeHtml(String(o))}"${chk}/> ${escapeHtml(String(o))}</label>`;
       }).join("") + "</fieldset>";
   }
   if (def.type === "float") {
@@ -207,15 +298,16 @@ function fieldInput(name, def, currentVal) {
     return `<input type="number" name="${name}" step="0.05" min="${lo}" max="${hi}" value="${v}" />`;
   }
   if (def.type === "text") {
-    return `<textarea name="${name}">${currentVal ?? ""}</textarea>`;
+    return `<textarea name="${name}">${escapeHtml(currentVal ?? "")}</textarea>`;
   }
-  return `<input type="text" name="${name}" value="${currentVal ?? ""}" />`;
+  return `<input type="text" name="${name}" value="${escapeHtml(currentVal ?? "")}" />`;
 }
 
 function renderDetail(scan) {
   const myLabel = scan.labels.find(l => l.annotator === state.annotator) || {};
   const fields = state.schema.fields;
   const order = [
+    "substrate", "thin_film", "molecule",
     "image_quality", "tip_state", "surface_quality", "artifact_tags",
     "research_value_label", "research_value_score", "next_action",
     "confidence", "reason_text",
@@ -223,7 +315,7 @@ function renderDetail(scan) {
   const formRows = order.map(name => {
     const def = fields[name];
     if (!def) return "";
-    return `<label>${name}</label>${fieldInput(name, def, myLabel[name])}`;
+    return `<label>${fieldLabel(name)}</label>${fieldInput(name, def, carryValue(name, def, myLabel))}`;
   }).join("");
 
   const otherLabels = scan.labels.filter(l => l.annotator !== state.annotator);
@@ -248,7 +340,7 @@ function renderDetail(scan) {
     <form id="labelForm">
       ${formRows}
       <label>annotator_notes<br/><small>(自由备注, review 时可见)</small></label>
-      <textarea name="annotator_notes">${myLabel.annotator_notes ?? ""}</textarea>
+      <textarea name="annotator_notes">${escapeHtml(myLabel.annotator_notes ?? "")}</textarea>
       <div class="actions">
         <button type="submit">保存我的标签</button>
         <button type="button" class="secondary" id="nextBtn">保存并下一张 →</button>
@@ -276,9 +368,10 @@ function renderLabelCard(l) {
   const review = l.review_status
     ? `<span class="badge ${l.review_status}">${l.review_status}</span>`
     : `<span class="badge pending">未 review</span>`;
-  const fields = ["image_quality", "tip_state", "surface_quality",
-                  "research_value_label", "next_action", "confidence"]
-    .map(k => l[k] != null ? `<b>${k}</b>=${l[k]}` : null)
+  const fields = ["substrate", "thin_film", "molecule", "image_quality",
+                  "tip_state", "surface_quality", "research_value_label",
+                  "next_action", "confidence"]
+    .map(k => l[k] != null ? `<b>${fieldLabel(k)}</b>=${escapeHtml(l[k])}` : null)
     .filter(Boolean).join(" · ");
   const tags = Array.isArray(l.artifact_tags) && l.artifact_tags.length
     ? `<div>tags: ${l.artifact_tags.join(", ")}</div>` : "";
@@ -333,6 +426,7 @@ async function saveLabel(advance) {
   ["research_value_score", "confidence"].forEach(k => {
     if (fields[k] != null && fields[k] !== "") fields[k] = parseFloat(fields[k]);
   });
+  rememberCarryDefaults(fields);
   try {
     await api("/api/label", {
       method: "POST",
@@ -344,6 +438,7 @@ async function saveLabel(advance) {
     });
     toast("已保存");
     await loadStats();
+    await loadSessionOverview();
     if (advance) {
       const idx = state.scans.findIndex(s => s.scan_id === state.currentScanId);
       const next = state.scans.slice(idx + 1).find(s => !s.labelled_by_me)
@@ -378,8 +473,22 @@ async function submitReview(scanId, annotator, form) {
     toast("review 已记录");
     selectScan(scanId);
     loadStats();
+    loadSessionOverview();
   } catch (e) {
     toast("review 失败: " + e.message, false);
+  }
+}
+
+function rememberCarryDefaults(fields) {
+  let changed = false;
+  CARRY_FIELDS.forEach(name => {
+    if (fields[name] != null && String(fields[name]).trim() !== "") {
+      state.carryDefaults[name] = String(fields[name]).trim();
+      changed = true;
+    }
+  });
+  if (changed) {
+    localStorage.setItem("stm_label_carry", JSON.stringify(state.carryDefaults));
   }
 }
 
@@ -388,16 +497,24 @@ $("annotator").value = state.annotator;
 $("annotator").addEventListener("change", () => {
   state.annotator = $("annotator").value.trim();
   localStorage.setItem("stm_annotator", state.annotator);
-  loadStats(); loadScans();
+  loadStats(); loadSessionOverview(); loadScans();
 });
 $("modeFilter").addEventListener("change", loadScans);
-$("sessionFilter").addEventListener("change", loadScans);
-$("refreshBtn").addEventListener("click", () => { loadStats(); loadScans(); });
+$("sessionFilter").addEventListener("change", () => {
+  state.sessionId = $("sessionFilter").value;
+  if (state.sessionId) localStorage.setItem("stm_session_filter", state.sessionId);
+  else localStorage.removeItem("stm_session_filter");
+  state.currentScanId = null;
+  $("detail").innerHTML = '<div class="empty">从左侧选一张扫描</div>';
+  loadSessionOverview(); loadScans();
+});
+$("refreshBtn").addEventListener("click", () => { loadStats(); loadSessionOverview(); loadScans(); });
 
 (async () => {
   await loadSchema();
   await loadSessions();
   await loadStats();
+  await loadSessionOverview();
   await loadScans();
 })();
 </script>
