@@ -100,17 +100,17 @@ class NanonisReadOnlyClient:
         self._sock: Optional[socket.socket] = None
         self._spm = None  # type: ignore[assignment]
         self._connected_port: Optional[int] = None
+        self._version_info_from_connect: Optional[Dict[str, Any]] = None
+        self._port_probe_results: list[Dict[str, Any]] = []
 
     # -- connection ---------------------------------------------------------
     def connect(self) -> int:
         """Connect to ``host``. Returns the port actually used.
 
-        After establishing the TCP socket we send one cheap read command to
-        verify the server really speaks the Nanonis Programming Interface
-        (some installs leave LabVIEW VI Server listening on the same port
-        range; it accepts the TCP handshake but never replies to our
-        commands). If the test fails we close the socket and try the next
-        fallback port.
+        A TCP handshake alone is not enough: some services accept the socket
+        but do not answer Nanonis data commands. After connecting we therefore
+        require the core read-only commands used by the logger to respond. If
+        those probes fail, we close the socket and try the next fallback port.
         """
         with self._lock:
             if self._spm is not None:
@@ -119,28 +119,65 @@ class NanonisReadOnlyClient:
             import nanonis_spm  # local import: keep module import light
 
             last_err: Optional[BaseException] = None
+            self._port_probe_results = []
+            seen_ports: set[int] = set()
+            candidates = []
             for candidate in (self.port, *self.fallback_ports):
+                if candidate not in seen_ports:
+                    candidates.append(candidate)
+                    seen_ports.add(candidate)
+
+            for candidate in candidates:
                 sock: Optional[socket.socket] = None
+                probe_result: Dict[str, Any] = {
+                    "port": candidate,
+                    "selected": False,
+                }
                 try:
+                    probe_timeout = min(self.timeout, 2.0)
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    # Probe with a short timeout so a wrong port fails fast.
-                    sock.settimeout(min(self.timeout, 2.0))
+                    # Keep the first wrapper command short too; wrong ports
+                    # must fail fast so fallback reaches the real PI port.
+                    sock.settimeout(probe_timeout)
                     sock.connect((self.host, candidate))
                     spm_probe = nanonis_spm.Nanonis(sock)
-                    # Util.RTFreqGet is a tiny, read-only probe; if the
-                    # server doesn't answer within the probe timeout the
-                    # port is wrong (e.g. LabVIEW VI Server on 6501).
-                    _ = spm_probe.Util_RTFreqGet()
+
+                    core_probe: Dict[str, str] = {}
+                    for method_name in (
+                        "Bias_Get",
+                        "Current_Get",
+                        "Util_SessionPathGet",
+                    ):
+                        try:
+                            getattr(spm_probe, method_name)()
+                            core_probe[method_name] = "ok"
+                        except Exception as exc:  # noqa: BLE001
+                            core_probe[method_name] = (
+                                f"{type(exc).__name__}: {exc}"
+                            )
+                    probe_result["core_probe"] = core_probe
+                    if core_probe.get("Bias_Get") != "ok" or core_probe.get("Current_Get") != "ok":
+                        raise TimeoutError(
+                            "core data probe failed: "
+                            f"Bias_Get={core_probe.get('Bias_Get')}; "
+                            f"Current_Get={core_probe.get('Current_Get')}"
+                        )
+
                     # Real session timeout once we know the port works.
                     sock.settimeout(self.timeout)
                     self._sock = sock
                     self._spm = spm_probe
                     self._connected_port = candidate
+                    probe_result["wrapper_probe"] = "Bias_Get ok"
+                    probe_result["selected"] = True
+                    self._port_probe_results.append(probe_result)
                     logger.info("Nanonis read-only client connected to %s:%s",
                                 self.host, candidate)
                     return candidate
                 except (OSError, Exception) as exc:
                     last_err = exc
+                    probe_result["error"] = f"{type(exc).__name__}: {exc}"
+                    self._port_probe_results.append(probe_result)
                     logger.warning("Connect/probe %s:%s failed: %s",
                                    self.host, candidate, exc)
                     if sock is not None:
@@ -163,6 +200,11 @@ class NanonisReadOnlyClient:
                 self._spm = None
             self._sock = None
             self._connected_port = None
+            self._version_info_from_connect = None
+
+    def port_probe_results(self) -> list[Dict[str, Any]]:
+        """Return diagnostics from the most recent fallback-port scan."""
+        return list(self._port_probe_results)
 
     def __enter__(self) -> "NanonisReadOnlyClient":
         self.connect()
@@ -274,6 +316,8 @@ class NanonisReadOnlyClient:
            similar), fall back to the raw protocol on a *separate* socket.
         3. If both fail, return ``{ok: False, error: ...}``; never raise.
         """
+        if self._version_info_from_connect is not None:
+            return dict(self._version_info_from_connect)
         try:
             values = self._parsed_values(self._call("Util_VersionGet"))
             # Six version strings, interleaved with the length ints used

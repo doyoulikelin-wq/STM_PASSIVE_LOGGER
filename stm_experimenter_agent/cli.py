@@ -67,6 +67,7 @@ def cmd_probe(args) -> int:
     try:
         client.connect()
         info["connected_port"] = client._connected_port
+        info["port_probe_results"] = client.port_probe_results()
         info["version"] = client.version_info()
         try:
             info["session_path"] = client.session_path()

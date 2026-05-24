@@ -1,6 +1,9 @@
 """Tests proving the read-only client refuses write/actuation calls."""
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
 from stm_experimenter_agent.nanonis_driver.client import (
@@ -92,3 +95,70 @@ def test_snapshot_unwraps_tuples_and_records_no_errors() -> None:
     assert snap.bias_V == pytest.approx(1.25)
     assert snap.z_controller_on is True
     assert snap.scan_status == 0
+
+
+class _FakeSocket:
+    def __init__(self, *args, **kwargs):
+        self.port = None
+        self.timeout = None
+        self.closed = False
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
+
+    def connect(self, address):
+        self.port = address[1]
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeNanonis:
+    bad_data_ports = set()
+
+    def __init__(self, sock):
+        self.sock = sock
+
+    def Bias_Get(self):
+        if self.sock.port in self.bad_data_ports:
+            raise TimeoutError("timed out")
+        return ("", b"", [2.0])
+
+    def Current_Get(self):
+        return ("", b"", [1.0e-10])
+
+    def Util_SessionPathGet(self):
+        return ("", b"", [9, "D:\\STM\\S2"])
+
+    def close(self):
+        pass
+
+
+def test_connect_skips_port_when_core_data_probe_fails(monkeypatch) -> None:
+    _FakeNanonis.bad_data_ports = {6501}
+    monkeypatch.setitem(
+        sys.modules,
+        "nanonis_spm",
+        types.SimpleNamespace(Nanonis=_FakeNanonis),
+    )
+    monkeypatch.setattr(
+        "stm_experimenter_agent.nanonis_driver.client.socket.socket",
+        _FakeSocket,
+    )
+
+    client = NanonisReadOnlyClient(
+        host="127.0.0.1",
+        port=6501,
+        timeout=5.0,
+        fallback_ports=(6502, 6503),
+    )
+
+    assert client.connect() == 6502
+    assert client._connected_port == 6502
+    probes = client.port_probe_results()
+    assert probes[0]["port"] == 6501
+    assert probes[0]["selected"] is False
+    assert "timed out" in probes[0]["core_probe"]["Bias_Get"]
+    assert probes[1]["port"] == 6502
+    assert probes[1]["selected"] is True
+    _FakeNanonis.bad_data_ports = set()

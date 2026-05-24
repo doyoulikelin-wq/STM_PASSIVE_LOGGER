@@ -3,6 +3,6 @@
 # 6555-6557 是 Simulator/Sim-Engine 内部端口。
 host: 127.0.0.1
 primary_port: 6501
-fallback_ports: [6502, 6503, 65004]
+fallback_ports: [6502, 6503, 6504, 65004]
 connect_timeout_s: 5.0
 recv_timeout_s: 5.0

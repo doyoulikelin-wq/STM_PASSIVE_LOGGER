@@ -7,6 +7,8 @@ REM ============================================================
 setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
+set "BASE=%~dp0"
+set "PY=%BASE%python_runtime\python.exe"
 
 echo.
 echo ================================================================
@@ -14,30 +16,41 @@ echo   STM Logger / Annotation Tool  -  self-check
 echo ================================================================
 echo.
 
-if not exist "%~dp0python_runtime\python.exe" (
-    echo [错误] 找不到内置 Python:
-    echo     %~dp0python_runtime\python.exe
+if not exist "%PY%" (
+    echo [错误] 找不到内置 Python.
     echo.
-    echo 可能原因:
-    echo   - zip 没有完整解压 (尤其不要把脚本拖出 zip 单独运行)
-    echo   - 解压路径里有中文 / 空格 / 特殊符号 (请改放到纯英文路径)
+    echo 当前运行的自检脚本目录是:
+    echo     %BASE%
+    echo.
+    echo 这个目录旁边必须能看到:
+    echo     python_runtime\python.exe
+    echo.
+    echo 常见原因:
+    echo   - 还在 zip 压缩包预览窗口里直接双击, 没有完整解压
+    echo   - 只复制了 .bat 文件, 没有复制整个文件夹
+    echo   - 解压路径里有中文 / 空格 / 特殊符号, 建议改到 D:\stm_logger
     echo.
     pause
     exit /b 1
 )
 
-echo [1/3] 检测内置 Python ...
-"%~dp0python_runtime\python.exe" -c "import sys; print('     Python', sys.version.split()[0], 'OK')"
+echo [1/4] 检测内置 Python ...
+"%PY%" -c "import sys; print('     Python', sys.version.split()[0], 'OK')"
 if errorlevel 1 goto :fail
 
 echo.
-echo [2/3] 检测关键依赖 (numpy / matplotlib / PyYAML / nanonis-spm) ...
-"%~dp0python_runtime\python.exe" -c "import numpy, matplotlib, yaml, nanonis_spm; print('     deps OK')"
+echo [2/4] 检测关键依赖 (numpy / matplotlib / PyYAML / nanonis-spm) ...
+"%PY%" -c "import numpy, matplotlib, yaml, nanonis_spm; print('     deps OK')"
 if errorlevel 1 goto :fail
 
 echo.
-echo [3/3] 检测本工具 (stm_experimenter_agent) ...
-"%~dp0python_runtime\python.exe" -c "import stm_experimenter_agent; print('     stm_experimenter_agent OK')"
+echo [3/4] 检测本工具 (stm_experimenter_agent) ...
+"%PY%" -c "import stm_experimenter_agent; print('     stm_experimenter_agent OK')"
+if errorlevel 1 goto :fail
+
+echo.
+echo [4/4] 检测标注 UI 页面和配置文件 ...
+"%PY%" -c "from stm_experimenter_agent.annotation.server import _INDEX_HTML; from stm_experimenter_agent.config import load_yaml; assert _INDEX_HTML.exists(), _INDEX_HTML; load_yaml('label_schema'); print('     annotation UI files OK')"
 if errorlevel 1 goto :fail
 
 echo.
@@ -45,10 +58,10 @@ echo ================================================================
 echo   自检通过! 整套工具已就绪, 不需要再装任何东西.
 echo.
 echo   接下来:
-echo     1) 在 Nanonis 里启用  TCP Programming Interface
-echo     2) 双击  健康检查.bat       看是否能连上 Nanonis
-echo     3) 双击  启动logger.bat     开始记录
-echo     4) 双击  打开标注UI.bat     离线对已有数据做标注
+echo     1. 在 Nanonis 里启用  TCP Programming Interface
+echo     2. 双击  健康检查.bat       看是否能连上 Nanonis
+echo     3. 双击  启动logger.bat     开始记录
+echo     4. For offline labels, run the annotation UI batch file.
 echo ================================================================
 echo.
 pause
