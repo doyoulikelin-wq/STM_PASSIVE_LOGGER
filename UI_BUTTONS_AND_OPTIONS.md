@@ -101,10 +101,10 @@
 | 字段 | 选项 | 建议含义 |
 | --- | --- | --- |
 | `image_quality` | `excellent`, `usable`, `questionable`, `unusable` | 图像质量：很好、可用、有疑问、不可用。 |
-| `tip_state` | `good_tip`, `dirty_tip`, `double_tip`, `blunt_tip`, `unstable_tip`, `crashed_tip_suspected`, `unknown` | 针尖状态。 |
-| `surface_quality` | `flat_terrace`, `tilted_plane`, `rough_surface`, `contaminated`, `step_edge_dense`, `unstable_area`, `unknown` | 表面状态。 |
+| `tip_state` | `good_tip`, `usable_tip`, `dirty_tip`, `asymmetric_tip`, `double_tip`, `multi_tip`, `blunt_tip`, `unstable_tip`, `crashed_tip_suspected`, `unknown` | 针尖状态。 |
+| `surface_quality` | `flat_terrace`, `tilted_plane`, `rough_surface`, `contaminated`, `step_edge_dense`, `large_protrusion`, `deep_pits`, `unstable_area`, `unknown` | 表面状态。 |
 | `research_value_label` | `high_value`, `medium_value`, `low_value`, `not_relevant`, `unknown` | 研究价值粗分类。 |
-| `next_action` | `fine_scan_roi`, `zoom_in`, `move_region`, `adjust_params`, `tip_check`, `recommend_repair`, `run_sts`, `run_cits`, `run_didv_mapping`, `stop`, `ask_human` | 建议下一步操作。 |
+| `next_action` | `fine_scan_roi`, `zoom_in`, `move_region`, `adjust_params`, `adjust_tilt_correction`, `use_smart_tilt`, `tip_check`, `recommend_repair`, `run_sts`, `run_cits`, `run_didv_mapping`, `stop`, `ask_human` | 建议下一步操作。 |
 
 ### 7.3 多选标签
 
@@ -114,11 +114,13 @@
 - `drift`：漂移。
 - `blur`：模糊。
 - `line_jump`：行跳变。
+- `point_jump`：单点或局部小区域突然异常跳变。
 - `double_image`：双像。
 - `feedback_instability`：反馈不稳定。
 - `saturation`：信号饱和。
 - `low_contrast`：对比度低。
 - `contamination`：污染。
+- `large_height_span`：整体高度跨度偏大，细节被色阶压缩。
 
 ### 7.4 数值和文本
 

@@ -13,6 +13,7 @@ import pytest
 
 from stm_experimenter_agent.annotation.server import _make_handler, _ReusableServer
 from stm_experimenter_agent.annotation.store import AnnotationStore
+from stm_experimenter_agent.config import load_yaml
 from stm_experimenter_agent.data_collection.dataset_writer import DatasetWriter
 from stm_experimenter_agent.data_collection.scan_capture import ScanCapture
 
@@ -85,6 +86,28 @@ def _seed_dataset(root: Path) -> str:
         )
     dw.close()
     return sid
+
+
+def test_label_schema_v3_includes_experimenter_feedback_options() -> None:
+    schema = load_yaml("label_schema")
+    fields = schema["fields"]
+
+    assert schema["version"] == 3
+    assert {"usable_tip", "asymmetric_tip", "multi_tip"}.issubset(
+        fields["tip_state"]["options"]
+    )
+    assert {"large_protrusion", "deep_pits"}.issubset(
+        fields["surface_quality"]["options"]
+    )
+    assert {"point_jump", "large_height_span"}.issubset(
+        fields["artifact_tags"]["options"]
+    )
+    assert {"adjust_tilt_correction", "use_smart_tilt"}.issubset(
+        fields["next_action"]["options"]
+    )
+    assert fields["tip_state"]["label_zh"] == "针尖状态"
+    assert fields["tip_state"]["label_en"] == "Tip state"
+    assert fields["annotator_notes"]["type"] == "text"
 
 
 def test_annotation_store_upsert_and_list(tmp_path: Path) -> None:

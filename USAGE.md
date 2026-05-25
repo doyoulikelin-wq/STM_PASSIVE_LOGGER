@@ -204,6 +204,8 @@ POST endpoints：
 
 配置文件：[stm_experimenter_agent/config/label_schema.yaml](stm_experimenter_agent/config/label_schema.yaml)
 
+当前 schema version 为 `3`，已包含实验员反馈新增的 `usable_tip`、`asymmetric_tip`、`multi_tip`、`large_protrusion`、`deep_pits`、`point_jump`、`large_height_span`、`adjust_tilt_correction`、`use_smart_tilt`。
+
 字段类型：
 
 - `combo`：下拉建议 + 可手填。目前用于 `substrate`, `thin_film`, `molecule`。
@@ -214,6 +216,8 @@ POST endpoints：
 - `text`：长文本。
 
 `substrate`、`thin_film`、`molecule` 带 `carry_over: true`，保存后会自动作为下一张图的默认值。
+
+字段中同时保留 `label` 和 `label_zh/label_en`。当前 UI 仍使用中文显示；`label_zh/label_en` 是为后续中英文切换预留的显示名。
 
 ## 9. 历史 .sxm 导入
 

@@ -1,38 +1,63 @@
-version: 2
+version: 3
 fields:
   substrate:
     label: 衬底/基底
+    label_zh: 衬底/基底
+    label_en: Substrate
     type: combo
     carry_over: true
     options: [HOPG, Au(111), Ag(111), Cu(111), Si(111), SiO2/Si, mica, graphene, hBN, unknown]
   thin_film:
     label: 薄膜
+    label_zh: 薄膜
+    label_en: Thin film
     type: combo
     carry_over: true
     options: [none, Bi2Se3, BP, MoS2, WSe2, hBN, graphene, organic_film, unknown]
   molecule:
     label: 分子
+    label_zh: 分子
+    label_en: Molecule
     type: combo
     carry_over: true
     options: [none, unknown]
   surface_quality:
+    label: 表面质量
+    label_zh: 表面质量
+    label_en: Surface quality
     type: single
-    options: [flat_terrace, tilted_plane, rough_surface, contaminated, step_edge_dense, unstable_area, unknown]
+    options: [flat_terrace, tilted_plane, rough_surface, contaminated, step_edge_dense, large_protrusion, deep_pits, unstable_area, unknown]
   image_quality:
+    label: 图像质量
+    label_zh: 图像质量
+    label_en: Image quality
     type: ordinal
     options: [excellent, usable, questionable, unusable]
   tip_state:
+    label: 针尖状态
+    label_zh: 针尖状态
+    label_en: Tip state
     type: single
-    options: [good_tip, dirty_tip, double_tip, blunt_tip, unstable_tip, crashed_tip_suspected, unknown]
+    options: [good_tip, usable_tip, dirty_tip, asymmetric_tip, double_tip, multi_tip, blunt_tip, unstable_tip, crashed_tip_suspected, unknown]
   artifact_tags:
+    label: 伪影标签
+    label_zh: 伪影标签
+    label_en: Artifact tags
     type: multi
-    options: [stripe_noise, drift, blur, line_jump, double_image, feedback_instability, saturation, low_contrast, contamination]
+    options: [stripe_noise, drift, blur, line_jump, point_jump, double_image, feedback_instability, saturation, low_contrast, contamination, large_height_span]
   research_value_label:
+    label: 研究价值
+    label_zh: 研究价值
+    label_en: Research value
     type: single
     options: [high_value, medium_value, low_value, not_relevant, unknown]
-  research_value_score: {type: float, range: [0.0, 1.0]}
+  research_value_score: {label: 研究价值评分, label_zh: 研究价值评分, label_en: Research value score, type: float, range: [0.0, 1.0]}
   next_action:
+    label: 下一步动作
+    label_zh: 下一步动作
+    label_en: Next action
     type: single
-    options: [fine_scan_roi, zoom_in, move_region, adjust_params, tip_check, recommend_repair, run_sts, run_cits, run_didv_mapping, stop, ask_human]
-  confidence: {type: float, range: [0.0, 1.0]}
-  reason_text: {type: text}
+    options: [fine_scan_roi, zoom_in, move_region, adjust_params, adjust_tilt_correction, use_smart_tilt, tip_check, recommend_repair, run_sts, run_cits, run_didv_mapping, stop, ask_human]
+  confidence: {label: 置信度, label_zh: 置信度, label_en: Confidence, type: float, range: [0.0, 1.0]}
+  reason_text: {label: 判断原因, label_zh: 判断原因, label_en: Reason, type: text}
+  annotator_notes: {label: 实验员备注, label_zh: 实验员备注, label_en: Annotator notes, type: text}

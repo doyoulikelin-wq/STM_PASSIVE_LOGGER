@@ -283,7 +283,7 @@ function renderScanList() {
 
 function fieldLabel(name) {
   const def = state.schema?.fields?.[name];
-  return def?.label || name;
+  return def?.label || def?.label_zh || name;
 }
 
 function carryValue(name, def, myLabel) {
@@ -343,7 +343,7 @@ function renderDetail(scan) {
     "substrate", "thin_film", "molecule",
     "image_quality", "tip_state", "surface_quality", "artifact_tags",
     "research_value_label", "research_value_score", "next_action",
-    "confidence", "reason_text",
+    "confidence", "reason_text", "annotator_notes",
   ];
   const formRows = order.map(name => {
     const def = fields[name];
