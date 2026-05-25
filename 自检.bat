@@ -7,7 +7,7 @@ REM ============================================================
 setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
-set "BASE=%~dp0"
+set "BASE=%CD%\"
 set "PY=%BASE%python_runtime\python.exe"
 
 echo.
@@ -61,7 +61,7 @@ echo   接下来:
 echo     1. 在 Nanonis 里启用  TCP Programming Interface
 echo     2. 双击  健康检查.bat       看是否能连上 Nanonis
 echo     3. 双击  启动logger.bat     开始记录
-echo     4. For offline labels, run the annotation UI batch file.
+echo     4. Offline labels: run the annotation UI batch file.
 echo ================================================================
 echo.
 pause

@@ -421,6 +421,13 @@ class AnnotationStore:
         if not row or not row["preview_path"]:
             return None
         p = Path(row["preview_path"])
-        if not p.is_absolute():
-            p = (self.data_root / p).resolve()
-        return p if p.exists() else None
+        candidates = [p if p.is_absolute() else (self.data_root / p).resolve()]
+        if p.is_absolute():
+            parts = p.parts
+            if "previews" in parts:
+                idx = parts.index("previews")
+                candidates.append((self.data_root / Path(*parts[idx:])).resolve())
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None

@@ -6,6 +6,7 @@ runtime deps. The single static frontend lives next to this file as
 """
 from __future__ import annotations
 
+import cgi
 import json
 import logging
 import socketserver
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..config import load_yaml
+from ..data_collection.sxm_importer import import_sxm_folder, import_sxm_upload
 from .store import AnnotationStore
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,36 @@ def _make_handler(store: AnnotationStore, schema: Dict[str, Any]):
                 return json.loads(raw.decode("utf-8"))
             except (ValueError, UnicodeDecodeError) as exc:
                 raise ValueError(f"invalid JSON body: {exc}") from exc
+
+        def _session_meta_from_mapping(self, body: Dict[str, Any]) -> Dict[str, Any]:
+            meta = body.get("session_meta") or body
+            return {
+                "operator": meta.get("operator") or None,
+                "sample_id": meta.get("sample_id") or None,
+                "tip_id": meta.get("tip_id") or None,
+                "material": meta.get("material") or None,
+                "notes": meta.get("notes") or None,
+            }
+
+        def _form_value(self, form: cgi.FieldStorage, name: str) -> Optional[str]:
+            item = form[name] if name in form else None
+            if item is None or item.filename:
+                return None
+            value = item.value
+            return value.strip() if isinstance(value, str) and value.strip() else None
+
+        def _read_multipart(self) -> cgi.FieldStorage:
+            env = {
+                "REQUEST_METHOD": "POST",
+                "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
+            }
+            return cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ=env,
+                keep_blank_values=True,
+            )
 
         def _parse(self) -> tuple[str, Dict[str, str]]:
             parsed = urllib.parse.urlparse(self.path)
@@ -111,7 +143,45 @@ def _make_handler(store: AnnotationStore, schema: Dict[str, Any]):
         def do_POST(self):  # noqa: N802
             path, _query = self._parse()
             try:
+                if path == "/api/import-upload":
+                    form = self._read_multipart()
+                    file_item = form["file"] if "file" in form else None
+                    if file_item is None or not file_item.filename:
+                        raise ValueError("file is required")
+                    session_id = self._form_value(form, "session_id")
+                    if not session_id:
+                        raise ValueError("session_id is required")
+                    meta = {
+                        "operator": self._form_value(form, "operator"),
+                        "sample_id": self._form_value(form, "sample_id"),
+                        "tip_id": self._form_value(form, "tip_id"),
+                        "material": self._form_value(form, "material"),
+                        "notes": self._form_value(form, "notes"),
+                    }
+                    result = import_sxm_upload(
+                        store.data_root,
+                        file_item.file,
+                        filename=file_item.filename,
+                        session_id=session_id,
+                        session_meta=meta,
+                        source_relative_path=self._form_value(form, "relative_path"),
+                    )
+                    return self._send_json(200, {"imported": 1, "scan": result})
+
                 body = self._read_json()
+                if path == "/api/import-path":
+                    import_path = (body.get("path") or "").strip()
+                    if not import_path:
+                        raise ValueError("path is required")
+                    session_id = (body.get("session_id") or "").strip() or None
+                    result = import_sxm_folder(
+                        store.data_root,
+                        import_path,
+                        session_id=session_id,
+                        session_meta=self._session_meta_from_mapping(body),
+                        recursive=bool(body.get("recursive")),
+                    )
+                    return self._send_json(200, result)
                 if path == "/api/label":
                     row = store.upsert_label(
                         scan_id=body.get("scan_id", ""),

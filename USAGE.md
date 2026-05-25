@@ -1,190 +1,254 @@
-# Passive Logger — 使用说明 (V0)
+# Source, CLI, Data and API Usage
 
-本目录是 STM Experimenter Agent 的 **被动数据采集器**。它在实验过程中只读 Nanonis、监听保存目录、把所有信号 / 扫描 / 事件统一写入 SQLite + JSONL。
-**它从不向硬件下任何写命令**，所以可以与实验员的正常操作并行运行。
+本文档面向开发者和需要查看 GitHub 源码的人，说明当前源码结构、CLI、数据目录、SQLite 表、标注 API 和测试方式。
 
----
+实验员操作说明见 [实验员说明.md](实验员说明.md)。
 
-## 1. 安装
+UI 按钮和选项说明见 [UI_BUTTONS_AND_OPTIONS.md](UI_BUTTONS_AND_OPTIONS.md)。
+
+## 1. 源码结构
+
+```text
+stm_experimenter_agent/
+  cli.py                         CLI 入口：probe/start/annotate-serve/annotate-stats
+  config/
+    logger.yaml                  数据目录、轮询频率、预览配置
+    nanonis_ports.yaml           Nanonis host/port/fallback 配置
+    label_schema.yaml            标注 UI 字段和选项
+  nanonis_driver/
+    client.py                    只读 Nanonis wrapper + 端口 core probe
+    raw_protocol.py              raw TCP helper，只用于白名单读命令
+  data_collection/
+    dataset_writer.py            SQLite schema、JSONL 写入、迁移
+    scan_capture.py              监听新 .sxm、归档原始文件、生成 preview
+    sxm_parser.py                Nanonis .sxm header/data parser
+    sxm_archive.py               data_root 下的 raw_sxm 归档工具
+    sxm_importer.py              历史 .sxm 路径/上传导入工具
+    preview.py                   PNG 预览渲染
+  annotation/
+    server.py                    stdlib HTTP server 和 JSON API
+    store.py                     标注查询、统计、session overview、review
+    index.html                   单文件离线标注 UI
+tests/                           离线测试，不需要 Nanonis 在线
+```
+
+## 2. 安装和测试
+
+源码开发环境：
 
 ```powershell
 cd D:\STM\logger
-python -m pip install -e .
+python -m pip install -e .[dev]
+python -m pytest -q
 ```
 
-之后包名 `stm_experimenter_agent` 即可被 Python 引用，CLI 入口是 `python -m stm_experimenter_agent.cli`。
+便携包不需要安装 Python。实验员使用 `stm_logger_v0.11_with_python` 里的 `.bat` 即可。
 
----
+## 3. CLI 命令
 
-## 2. 输入 —— 它需要什么、从哪里拿
-
-| 输入项 | 来源 | 谁提供 | 是否必填 |
-| --- | --- | --- | --- |
-| **Nanonis TCP Programming Interface** 已经打开 | Nanonis Mimea V5e 主界面 `Utilities → TCP Programming Interface` | 实验员 | 必须，否则信号轮询会报错（采集仍会继续，只是 signals 表的字段是 NULL+错误说明） |
-| TCP host / port | 默认尝试 `127.0.0.1:6501`，失败自动 fallback 到 `6502 / 6503`（见 [`config/nanonis_ports.yaml`](stm_experimenter_agent/config/nanonis_ports.yaml)）。可用 `--host / --port` 覆盖 | 实验员 | 默认即可 |
-| Nanonis 保存目录 | **优先自动从 Nanonis 自身读取**（`Util.SessionPathGet`）；若 Nanonis 未配置，可用 `--watch-dir` 手动指定 | 实验员 / 自动 | 选填；都没有则只采信号、不索引扫描 |
-| 会话元数据：`operator / sample / tip / material / notes` | 实验员现场输入（CLI 参数） | 实验员 | 至少填 `--operator` 和 `--sample`，便于后续筛选 |
-| 轮询频率 `--poll-hz` | 命令行 | 实验员 | 默认 `1.0` Hz；机器忙时可降到 `0.5` |
-| 数据根目录 `--data-root` | 命令行 | 实验员 | 默认当前工作目录下的 `data/` |
-
-> 采集器 **不** 读取 Nanonis 的实时扫描帧（避免占用控制带宽），它只在 `.sxm` 文件落盘后解析。所以"输入图像"的来源 = Nanonis 自己保存的 `.sxm` 文件。
-
----
-
-## 3. 输出 —— 写什么、放在哪里
-
-所有产物都落在 `--data-root` 指定的目录（默认 `./data/`）：
-
-```
-<data_root>/
-├── session.sqlite                ← 索引库（可用 DB Browser / sqlite3 打开）
-│   ├── sessions                  会话元数据 + 仪器版本
-│   ├── scans                     每个 .sxm 一行，含扫描参数和 preview 路径
-│   ├── signals                   每次轮询一行 Bias/Current/Z/feedback 状态
-│   └── events                    session_start / scan_captured / session_end / 自定义事件
-│
-├── sessions/<session_id>/
-│   ├── events.jsonl              事件追加日志（可 grep）
-│   ├── signals.jsonl             信号追加日志（与 SQLite 双写，互为备份）
-│   └── scans.jsonl               每个新 .sxm 的元数据快照
-│
-└── previews/<session_id>/
-    └── <scan_id>_<channel>_fwd.png   扫描首选通道（Z → Current → LI_Demod_1_X）的 PNG 预览
-```
-
-`session_id` 格式： `YYYYmmdd_HHMMSS_<sample>_<tip>`，例如 `20260519_213045_sampleA_tip03`。
-
-`scan_id` = 原始 `.sxm` 文件名 + 8 位 hash（防止重名）。
-
-### SQLite 表关系速查
-
-```sql
--- 看本次 session 已捕获多少张扫描
-SELECT scan_id, captured_ts, bias_V, pixels_x, preview_path
-FROM scans WHERE session_id = '20260519_213045_sampleA_tip03'
-ORDER BY captured_ts;
-
--- 看最近 60 秒的信号
-SELECT ts, bias_V, current_A, z_m, scan_status
-FROM signals WHERE session_id = ? AND ts > strftime('%s','now') - 60;
-
--- 看所有事件
-SELECT ts, kind, payload FROM events WHERE session_id = ? ORDER BY ts;
-```
-
----
-
-## 4. 启动命令
+### 3.1 健康检查
 
 ```powershell
-# 健康检查：探测端口 + 版本 + Nanonis 自报的 session 路径 + 一次信号快照
 python -m stm_experimenter_agent.cli probe
-
-# 启动一次被动采集 session（--watch-dir 已可省略，会从 Nanonis 自动发现）
-python -m stm_experimenter_agent.cli start `
-    --operator linye `
-    --sample sampleA `
-    --tip tip03 `
-    --material "Bi2Se3" `
-    --poll-hz 1.0 `
-    --data-root D:\STM\logger\data
 ```
 
-`probe` 的典型输出（注意 `connected_port` 与 `session_path`）：
+输出字段：
 
-```json
-{
-  "connected_port": 6502,
-  "version": { "ok": true, "app": "..." },
-  "session_path": "D:\\STM\\S2",
-  "sample_snapshot": { "bias_V": 2.0, "current_A": -6.5e-11, ... },
-  "ok": true
-}
-```
-
-按 `Ctrl + C` 优雅退出：会停止采集线程、flush 全部缓存、把 `end_ts` 写回 `sessions` 表，并写入 `session_end` 事件（含 signals/scans 计数）。
-
-> **PowerShell 引号提示**：上面示例里的 `linye / sampleA / tip03` 等都是真实值，**不要**把它们写成 `<你的名字>` 这种带尖括号的占位符 —— PowerShell 把 `<` 视为保留运算符会直接报错。任何含空格、中文、`&`、括号的值请用双引号包起来（如 `--material "Bi2Se3 thin film"`）。行尾的反引号 `` ` `` 是续行符，后面不能再有空格。
-
----
-
-## 5. 行为保证（工程不变量）
-
-1. **零写**：driver 层方法白名单 + raw protocol 命令白名单，任何 `*_Set / Pulse / Approach / Motor / TipShaper / Withdraw` 调用都会抛 `WriteOperationNotAllowed`。
-2. **崩溃可恢复**：JSONL 追加 + SQLite WAL，任一端损坏另一端仍可重建。
-3. **不阻塞实验员**：信号轮询 / 扫描监听都跑在守护线程，主线程只等 Ctrl+C。
-4. **不重灌历史**：scan watcher 启动时会把当前已存在的 `.sxm` 视为基线跳过，只入库启动后新增的文件；这避免反复重启时重复入库。
-5. **断网可恢复**：连续 5 次读取失败后主动断开 socket，下次轮询自动重连。
-6. **TCP 接口异常**：`Util.VersionGet` 走自实现的 raw 协议，绕开 `nanonis_spm` 的 `bad char in struct format` bug。
-
----
-
-## 6. 常见问题
-
-| 现象 | 原因 / 处理 |
+| 字段 | 含义 |
 | --- | --- |
-| `probe` 显示 `Could not reach a Nanonis Programming Interface on any of ...` | Nanonis 主程序的 TCP Programming Interface 没打开，或端口不在 `6501/6502/6503/65004`。检查 `File / Settings → Options → TCP Programming Interface` 并把实际端口加到 `config/nanonis_ports.yaml` 的 `fallback_ports`。 |
-| `probe` 输出 `connected_port` 不是 6501 | 正常。本机 Nanonis 安装实测 6501 是 LabVIEW VI Server（接受连接但不应答 Programming Interface 命令），真实接口在 6502/6503。logger 会自动 fallback，无需手动配。 |
-| `probe` 输出 `session_path: null` | Nanonis 还没设过保存目录。要么在 Nanonis `File → Path` 设一个，要么启动时显式 `--watch-dir`。 |
-| `signals` 表里 `errors` 字段非空 | 单个字段读取失败（例如 ZCtrl 未启用），其他字段照常入库。 |
-| `scans` 表一直没新行 | `--watch-dir` 路径错了，或 Nanonis 还没保存任何 `.sxm`。 |
-| 预览图缺失 | `.sxm` 不含 Z / Current / LI_Demod_1_X 任一通道，或 matplotlib 渲染失败（看终端日志）。 |
-| `session.sqlite is locked` | 同时有另一个进程在写。一个 data_root 同时只跑一个 logger。 |
+| `connected_port` | 实际选中的 Nanonis TCP 端口。 |
+| `port_probe_results` | 每个端口的 core probe 结果。`Bias_Get` 和 `Current_Get` 都 ok 才认为能交互数据。 |
+| `version` | `Util.VersionGet` 结果。部分 Nanonis 会超时，若最外层 `ok` 为 true 通常可忽略。 |
+| `session_path` | Nanonis 当前保存 `.sxm` 的目录，例如 `D:\STM\S2`。 |
+| `sample_snapshot` | 一次 Bias / Current / Z / feedback / scan status 快照。 |
+| `ok` | 最外层健康状态。 |
 
----
+如果 logger 已经运行，健康检查可能因为 TCP 连接被占用而失败。此时以 logger 窗口中的 `session started` 和信号写入日志为准。
 
-## 7. 离线标注 (V1)
+### 3.2 启动 logger
 
-思路：**logger 在实验期间一直开着，只负责采；标注是离线任务**，积累一批数据后再请实验员进来干。
-标注札记会写回同一个 `session.sqlite` 里的 `labels` 表，不会干扰采集进程。
+```powershell
+python -m stm_experimenter_agent.cli start `
+  --operator myl `
+  --sample BP5-001 `
+  --tip tip01 `
+  --material Bi2Se3 `
+  --notes first_run `
+  --data-root D:\STM\logger\data
+```
 
-### 启动标注 UI
+可选参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--host` | Nanonis host，默认配置为 `127.0.0.1`。 |
+| `--port` | 指定主端口；不填时从 `nanonis_ports.yaml` 读取。 |
+| `--watch-dir` | 手动指定 `.sxm` 监听目录；不填时尝试从 Nanonis `SessionPathGet` 自动读取。 |
+| `--poll-hz` | 信号轮询频率，默认 `1.0`。 |
+| `--data-root` | 数据根目录，便携包默认是自身目录下的 `data\`。 |
+| `--operator` | 操作者。 |
+| `--sample` | 样品编号。 |
+| `--tip` | 针尖编号。 |
+| `--material` | 材料说明。 |
+| `--notes` | 备注。 |
+
+Ctrl+C 会安全退出，写入 `session_end` 事件并 flush 缓存。
+
+### 3.3 启动标注 UI
 
 ```powershell
 python -m stm_experimenter_agent.cli annotate-serve `
-    --data-root D:\STM\logger\data `
-    --port 8765
+  --data-root D:\STM\logger\data `
+  --port 8765
 ```
 
-默认会自动打开浏览器访问 `http://127.0.0.1:8765/`；不想自开加 `--no-browser`。
-多人同时干可以开多个端口，也可以改 `--host 0.0.0.0` 让同事从带机访问（注意防火墙）。
+参数：
 
-### UI 使用顺序
+| 参数 | 说明 |
+| --- | --- |
+| `--data-root` | 已有 logger 数据目录。必须包含 `session.sqlite`。 |
+| `--host` | 默认 `127.0.0.1`。需要局域网访问时可改为 `0.0.0.0`，注意防火墙。 |
+| `--port` | 默认 `8765`。 |
+| `--no-browser` | 不自动打开浏览器。 |
 
-1. 顶部 「标注者」 填姓名（**必填**，会以此名义写入 `labels.annotator`；localStorage 会记住）。
-2. 默认只列 「我未标」 的扫描（只跟此人相关，别人标过也不影响）。可按 session 筛选。
-3. 点左侧扫描→右侧出预览图 + 表单；表单从 [`label_schema.yaml`](stm_experimenter_agent/config/label_schema.yaml) 动态生成。
-4. 填完点 「保存」 或 「保存并下一张」；`annotator_notes` 是自由备注，review 时能看到。
-5. **Review 机制**：同一张扫描下面会列出「其他标注者」的标签卡片，每张卡片下面有一个小表单可以选 `accept / dispute / need_redo` + 写评论，reviewer = 当前顶部填的名字。提交后会写入 `labels.review_status / review_comment / reviewer / reviewed_ts`。
-
-### 查看进度不起服务
+### 3.4 标注统计
 
 ```powershell
-python -m stm_experimenter_agent.cli annotate-stats --data-root D:\STM\logger\data --annotator linye
+python -m stm_experimenter_agent.cli annotate-stats --data-root D:\STM\logger\data --annotator myl
 ```
 
-### `labels` 表 schema 速查
+## 4. Nanonis 端口逻辑
+
+配置文件：[stm_experimenter_agent/config/nanonis_ports.yaml](stm_experimenter_agent/config/nanonis_ports.yaml)
+
+当前默认：
+
+- host: `127.0.0.1`
+- primary_port: `6501`
+- fallback_ports: `6502`, `6503`, `6504`, `65004`
+- timeout: `5.0` 秒
+
+端口选择不再以 TCP connect 成功为准，而是要求至少 `Bias_Get` 和 `Current_Get` 能返回。`Util_SessionPathGet` 会作为诊断项记录。
+
+## 5. 数据目录和路径策略
+
+```text
+data/
+  session.sqlite
+  sessions/<session_id>/events.jsonl
+  sessions/<session_id>/signals.jsonl
+  sessions/<session_id>/scans.jsonl
+  previews/<session_id>/<scan_id>_<channel>_fwd.png
+  raw_sxm/<session_id>/<scan_id>.sxm
+```
+
+路径策略：
+
+- Nanonis 保存目录可以是 `D:\STM\S2`。
+- logger/标注 data root 可以是 `D:\STM\stm_logger_v0.11_with_python\data`。
+- 新捕获或历史导入的 `.sxm` 会复制进 `data/raw_sxm/<session_id>/`。
+- `scans.sxm_path` 和 `scans.preview_path` 优先存相对 data root 的路径，便于整体拷走。
+- 旧数据库如果存了绝对 `preview_path`，UI 会尝试按当前 data root 下的 `previews/...` 兜底解析。
+
+## 6. SQLite 表
+
+| 表 | 一行代表 | 关键字段 |
+| --- | --- | --- |
+| `sessions` | 一次实验或一次历史导入 session | `session_id`, `start_ts`, `end_ts`, `operator`, `sample_id`, `tip_id`, `material`, `notes`, `instrument` |
+| `scans` | 一张 `.sxm` 扫描 | `scan_id`, `session_id`, `captured_ts`, `sxm_path`, `preview_path`, `bias_V`, `setpoint`, `pixels_x/y`, `range_x/y_m`, `channels`, `metadata` |
+| `signals` | 一次信号轮询 | `session_id`, `ts`, `bias_V`, `current_A`, `z_m`, `z_ctrl_on`, `scan_status`, `errors` |
+| `events` | 一个离散事件 | `session_id`, `ts`, `kind`, `payload` |
+| `labels` | 一个人对一张扫描的标注 | `(scan_id, annotator)`, `substrate`, `thin_film`, `molecule`, `image_quality`, `tip_state`, `surface_quality`, `artifact_tags`, `research_value_label`, `research_value_score`, `next_action`, `confidence`, `reason_text`, `annotator_notes`, `review_status`, `review_comment`, `reviewer`, `reviewed_ts` |
+
+常用查询：
 
 ```sql
--- 某人的标注
-SELECT * FROM labels WHERE annotator = 'linye' ORDER BY updated_ts DESC;
+SELECT session_id, operator, sample_id, tip_id, start_ts
+FROM sessions ORDER BY start_ts DESC LIMIT 10;
 
--- 未 review 的标签
-SELECT scan_id, annotator, image_quality, annotator_notes
-FROM labels WHERE review_status IS NULL;
+SELECT scan_id, captured_ts, sxm_path, preview_path, bias_V, pixels_x, pixels_y
+FROM scans WHERE session_id = '20260525_S2_BP5_tip01'
+ORDER BY captured_ts;
 
--- 同一张图不同人的分歧
-SELECT scan_id, annotator, image_quality, tip_state
-FROM labels WHERE scan_id IN (
-   SELECT scan_id FROM labels GROUP BY scan_id HAVING COUNT(*) > 1
-) ORDER BY scan_id;
+SELECT scan_id, annotator, image_quality, tip_state, review_status
+FROM labels ORDER BY updated_ts DESC LIMIT 20;
 ```
 
-主键是 `(scan_id, annotator)`：同一人重标同一张 = 覆盖（`updated_ts` 更新）；不同人标同一张 = 两条记录共存。
+## 7. 标注 API
 
----
+标注服务由 `annotation/server.py` 提供，使用 Python 标准库 `http.server`，没有 Flask/FastAPI 依赖。
 
-## 8. 下一阶段会用这些输出做什么
+GET endpoints：
 
-- `quality_baseline`：从 `scans` 表读 `sxm_path`，用 `sxm_parser.load_sxm` 计算 roughness / stripe / drift 等指标。
-- `session_report`：聚合 `sessions / scans / signals / events / labels` 生成每日 HTML/Markdown 总结。
+| Endpoint | 说明 |
+| --- | --- |
+| `/` 或 `/index.html` | 返回标注 UI。 |
+| `/api/schema` | 返回 `label_schema.yaml`。 |
+| `/api/sessions` | 返回 sessions 列表和每个 session 的总图数/已标数。 |
+| `/api/stats?annotator=myl` | 返回全局标注进度。 |
+| `/api/session-overview?session_id=...&annotator=...` | 返回当前 session 总览和标签分布。 |
+| `/api/scans?annotator=...&mode=unlabeled&session_id=...&limit=300` | 返回扫描列表。`mode` 可为 `unlabeled`, `labeled`, `all`。 |
+| `/api/scan/<scan_id>` | 返回单张扫描详情和所有标签。 |
+| `/preview/<scan_id>.png` | 返回 PNG 预览。 |
+
+POST endpoints：
+
+| Endpoint | Body | 说明 |
+| --- | --- | --- |
+| `/api/label` | JSON: `scan_id`, `annotator`, `fields` | 插入或更新当前标注者的标签。 |
+| `/api/review` | JSON: `scan_id`, `annotator`, `reviewer`, `status`, `comment` | review 某个标注者的标签。 |
+| `/api/import-path` | JSON: `path`, `session_id`, `session_meta`, `recursive` | 从本机路径导入历史 `.sxm`。 |
+| `/api/import-upload` | multipart: `file`, `session_id`, metadata | 浏览器文件夹选择后逐个上传导入 `.sxm`。 |
+
+## 8. 标签 schema
+
+配置文件：[stm_experimenter_agent/config/label_schema.yaml](stm_experimenter_agent/config/label_schema.yaml)
+
+字段类型：
+
+- `combo`：下拉建议 + 可手填。目前用于 `substrate`, `thin_film`, `molecule`。
+- `single`：单选。
+- `ordinal`：有序单选。
+- `multi`：多选 checkbox。
+- `float`：数值输入。
+- `text`：长文本。
+
+`substrate`、`thin_film`、`molecule` 带 `carry_over: true`，保存后会自动作为下一张图的默认值。
+
+## 9. 历史 .sxm 导入
+
+源码入口：[stm_experimenter_agent/data_collection/sxm_importer.py](stm_experimenter_agent/data_collection/sxm_importer.py)
+
+主要流程：
+
+1. 找到 `.sxm` 文件。
+2. 复制到 `data/raw_sxm/<session_id>/`。
+3. 用 `sxm_parser.load_sxm` 解析 metadata 和通道数据。
+4. 渲染 PNG 到 `data/previews/<session_id>/`。
+5. 写入 `sessions`、`scans`、`events`。
+
+UI 中的 `选择文件夹` 走 `/api/import-upload`，`导入路径` 走 `/api/import-path`。
+
+## 10. 测试重点
+
+```powershell
+python -m pytest -q
+```
+
+测试覆盖：
+
+- raw TCP header/body decode。
+- 只读 client 禁止写操作。
+- 端口连接后必须 core probe 成功。
+- SQLite/JSONL 写入和 labels schema 迁移。
+- `.sxm` header/data parser。
+- 标注 store、HTTP API、review、session overview。
+- 历史 `.sxm` 路径导入和 upload 导入。
+- live scan capture 把原始 `.sxm` 归档到 data root。
+- 移动 data root 后旧 absolute preview path 的兜底解析。
+
+## 11. 已知注意事项
+
+- Windows PowerShell 不支持 Bash here-doc。需要临时 Python 脚本时请用 `python -c`、PowerShell here-string 或真正的临时文件。
+- Windows `.bat` 在 `chcp 65001` 下可能误解析含中文的 `.bat` 文件名片段，因此自检提示中避免直接 echo `打开标注UI.bat`。
+- 不要手动把 `.sxm` 放进 `data\` 后期待 UI 显示；必须通过 logger 捕获或历史导入流程写入数据库。

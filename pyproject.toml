@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "stm_experimenter_agent"
 version = "0.1.0"
-description = "STM Experimenter Agent - Phase 0 passive logger and data collection"
+description = "STM passive logger, portable data package, and offline annotation UI"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

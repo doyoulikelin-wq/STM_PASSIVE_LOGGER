@@ -23,6 +23,7 @@ from typing import Dict, Optional, Set, Tuple
 
 from .dataset_writer import DatasetWriter
 from .preview import render_preview
+from .sxm_archive import archive_sxm_path, path_relative_to_data_root
 from .sxm_parser import load_sxm, parse_sxm_header
 
 logger = logging.getLogger(__name__)
@@ -166,26 +167,48 @@ class ScanCapture:
         scan_id = self._make_scan_id(path, captured_ts)
         logger.info("Ingesting scan %s from %s", scan_id, path)
 
+        archived_path = archive_sxm_path(
+            path,
+            self.writer.data_root,
+            self.session_id,
+            scan_id=scan_id,
+        )
+
         if self.render_preview_enabled:
-            sxm = load_sxm(path)
+            sxm = load_sxm(archived_path)
             preview_path = self._render_first_available(sxm, scan_id)
         else:
-            sxm = parse_sxm_header(path)
+            sxm = parse_sxm_header(archived_path)
             preview_path = None
 
         metadata = sxm.to_metadata()
+        metadata["source_sxm_path"] = str(path)
+        metadata["archived_sxm_path"] = path_relative_to_data_root(
+            archived_path,
+            self.writer.data_root,
+        )
         self.writer.insert_scan(
             session_id=self.session_id,
             scan_id=scan_id,
             captured_ts=captured_ts,
-            sxm_path=str(path),
-            preview_path=str(preview_path) if preview_path else None,
+            sxm_path=path_relative_to_data_root(archived_path, self.writer.data_root),
+            preview_path=(
+                path_relative_to_data_root(preview_path, self.writer.data_root)
+                if preview_path else None
+            ),
             metadata=metadata,
         )
         self.writer.log_event(self.session_id, "scan_captured", {
             "scan_id": scan_id,
             "sxm_path": str(path),
-            "preview_path": str(preview_path) if preview_path else None,
+            "archived_sxm_path": path_relative_to_data_root(
+                archived_path,
+                self.writer.data_root,
+            ),
+            "preview_path": (
+                path_relative_to_data_root(preview_path, self.writer.data_root)
+                if preview_path else None
+            ),
         }, ts=captured_ts)
 
     def _render_first_available(self, sxm, scan_id: str) -> Optional[Path]:
