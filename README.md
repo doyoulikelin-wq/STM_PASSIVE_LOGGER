@@ -14,6 +14,7 @@ STM/Nanonis 实验的便携式被动记录与离线标注工具。
 - 自动读取 Nanonis 的 Session 保存目录，监听新保存的 `.sxm`。
 - 捕获 `.sxm` 后写入 SQLite + JSONL，生成 PNG 预览，并把原始 `.sxm` 归档到 `data/raw_sxm/<session_id>/`。
 - 离线标注 UI 支持多标注者、review、session 筛选、session 总览、标签分布统计。
+- 标注 UI 可从归档 `.sxm` 动态渲染不同 channel / forward-backward / difference 视图，并调节大小、LUT、contrast、colorbar、flip 和 plane subtraction。
 - 标注 UI 可导入历史 Nanonis session：既支持浏览器选择文件夹，也支持直接输入本机路径如 `D:\STM\S2`。
 - 便携包自带 Python 3.11 和依赖，实验室电脑不需要 pip、不需要管理员权限、不需要联网。
 

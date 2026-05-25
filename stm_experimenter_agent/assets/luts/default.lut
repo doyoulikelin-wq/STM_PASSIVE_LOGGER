@@ -1,0 +1,9 @@
+# STM Passive Logger default LUT
+# RGB rows may use either 0-255 or 0.0-1.0 values.
+0 0 0
+22 38 80
+70 42 120
+160 68 75
+230 160 60
+255 242 185
+255 255 255

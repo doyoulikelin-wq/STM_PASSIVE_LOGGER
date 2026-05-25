@@ -29,6 +29,8 @@ def _build_synthetic_sxm(tmp_path: Path,
         "\t0.000E+0 0.000E+0\n"
         ":SCAN_ANGLE:\n"
         "\t0\n"
+        ":SCAN_DIR:\n"
+        "\tdown\n"
         ":BIAS:\n"
         "\t1.0\n"
         ":Z-CONTROLLER:\n"
@@ -67,6 +69,7 @@ def test_parse_header_extracts_core_fields(tmp_path: Path) -> None:
 
     assert sxm.pixels == (4, 3)
     assert sxm.scan_range_m == pytest.approx((1e-7, 1e-7))
+    assert sxm.scan_dir == "down"
     assert sxm.bias_V == pytest.approx(1.0)
     assert sxm.setpoint == pytest.approx(100e-12)
     assert sxm.setpoint_unit == "A"

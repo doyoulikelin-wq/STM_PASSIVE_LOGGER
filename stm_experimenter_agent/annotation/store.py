@@ -431,3 +431,23 @@ class AnnotationStore:
             if candidate.exists():
                 return candidate
         return None
+
+    def resolve_sxm(self, scan_id: str) -> Optional[Path]:
+        """Return the absolute path of the archived/raw .sxm for a scan."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT sxm_path FROM scans WHERE scan_id = ?", (scan_id,),
+            ).fetchone()
+        if not row or not row["sxm_path"]:
+            return None
+        p = Path(row["sxm_path"])
+        candidates = [p if p.is_absolute() else (self.data_root / p).resolve()]
+        if p.is_absolute():
+            parts = p.parts
+            if "raw_sxm" in parts:
+                idx = parts.index("raw_sxm")
+                candidates.append((self.data_root / Path(*parts[idx:])).resolve())
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None

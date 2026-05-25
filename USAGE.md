@@ -27,6 +27,7 @@ stm_experimenter_agent/
     preview.py                   PNG 预览渲染
   annotation/
     server.py                    stdlib HTTP server 和 JSON API
+    image_view.py                从 raw .sxm 动态渲染标注 UI 图像视图
     store.py                     标注查询、统计、session overview、review
     index.html                   单文件离线标注 UI
 tests/                           离线测试，不需要 Nanonis 在线
@@ -184,11 +185,13 @@ GET endpoints：
 | --- | --- |
 | `/` 或 `/index.html` | 返回标注 UI。 |
 | `/api/schema` | 返回 `label_schema.yaml`。 |
+| `/api/view-options` | 返回可用 LUT、view mode 和 orientation。 |
 | `/api/sessions` | 返回 sessions 列表和每个 session 的总图数/已标数。 |
 | `/api/stats?annotator=myl` | 返回全局标注进度。 |
 | `/api/session-overview?session_id=...&annotator=...` | 返回当前 session 总览和标签分布。 |
 | `/api/scans?annotator=...&mode=unlabeled&session_id=...&limit=300` | 返回扫描列表。`mode` 可为 `unlabeled`, `labeled`, `all`。 |
 | `/api/scan/<scan_id>` | 返回单张扫描详情和所有标签。 |
+| `/api/image/<scan_id>.png?channel=Z&mode=side_by_side&lut=default` | 从归档 `.sxm` 动态渲染 PNG；支持 channel、forward/backward、side-by-side、difference、orientation、LUT、colorbar、percentile clip、manual min/max、plane subtraction。 |
 | `/preview/<scan_id>.png` | 返回 PNG 预览。 |
 
 POST endpoints：
@@ -233,7 +236,20 @@ POST endpoints：
 
 UI 中的 `选择文件夹` 走 `/api/import-upload`，`导入路径` 走 `/api/import-path`。
 
-## 10. 测试重点
+## 10. 动态图像查看器
+
+标注 UI 优先使用 `/api/image/<scan_id>.png` 从 `scans.sxm_path` 指向的 raw `.sxm` 现读现渲染。这样同一张图可以切换：
+
+- channel：`Z`、`Current`、Lock-in 或 `.sxm` 中其他 channel；
+- direction/mode：`forward`、`backward`、`side_by_side`、`difference`；
+- orientation：`auto`、`original`、`flip_y`、`flip_x`、`rotate_90/180/270`；
+- display scale：percentile clip、manual `vmin/vmax`、colorbar on/off；
+- processing：raw image 或 plane-subtracted processed image；
+- LUT：`default`、`viridis`、`gray`、`inferno`、`magma`，以及 `stm_experimenter_agent/assets/luts/*.lut`。
+
+`auto` orientation 目前按 `.sxm` header 中的 `SCAN_DIR` 判断：`down` 会做 `Flip Y`，`up` 或未知则保持原方向。若动态渲染失败，前端会退回 `/preview/<scan_id>.png` 静态预览。
+
+## 11. 测试重点
 
 ```powershell
 python -m pytest -q

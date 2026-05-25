@@ -48,8 +48,23 @@
   .scan-meta { color: #6b7280; font-size: 11px; margin-top: 2px; }
   #detail { overflow-y: auto; padding: 16px 24px; }
   #detail h2 { margin: 0 0 8px; font-size: 15px; color: #374151; }
-  #preview { max-width: 520px; max-height: 520px; border: 1px solid #d1d5db;
-             background: #000; display: block; margin-bottom: 12px; }
+    #preview { border: 1px solid #d1d5db; background: #000; display: block; margin-bottom: 12px;
+          width: min(100%, 720px); height: auto; }
+    #preview.preview-small { width: min(100%, 360px); }
+    #preview.preview-medium { width: min(100%, 560px); }
+    #preview.preview-large { width: min(100%, 840px); }
+    #preview.preview-full { width: 100%; max-width: none; }
+    .viewer-panel { max-width: 920px; border: 1px solid #e5e7eb; background: #fff;
+          border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; }
+    .viewer-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr));
+         gap: 8px 10px; align-items: end; }
+    .viewer-grid label { display: flex; flex-direction: column; gap: 3px;
+          font-size: 12px; color: #4b5563; }
+    .viewer-grid select, .viewer-grid input[type=number], .viewer-grid input[type=range] {
+      width: 100%; padding: 4px 6px; font-family: inherit; font-size: 12px;
+      border: 1px solid #d1d5db; border-radius: 4px; }
+    .viewer-checks { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: #374151; }
+    .viewer-status { font-size: 11px; color: #6b7280; margin-top: 6px; }
   .scan-info { font-size: 12px; color: #4b5563; margin-bottom: 12px;
                background: #f9fafb; padding: 8px 12px; border-radius: 4px; }
   form { display: grid; grid-template-columns: 180px 1fr; gap: 8px 12px;
@@ -142,10 +157,13 @@ const state = {
   annotator: localStorage.getItem("stm_annotator") || "",
   sessionId: localStorage.getItem("stm_session_filter") || "",
   carryDefaults: JSON.parse(localStorage.getItem("stm_label_carry") || "{}"),
+  viewSettings: JSON.parse(localStorage.getItem("stm_view_settings") || "{}"),
+  viewOptions: { luts: ["default", "viridis", "gray", "inferno", "magma"] },
   schema: null,
   sessions: [],
   scans: [],
   currentScanId: null,
+  currentScan: null,
 };
 
 const CARRY_FIELDS = ["substrate", "thin_film", "molecule"];
@@ -170,6 +188,14 @@ async function api(path, opts = {}) {
 
 async function loadSchema() {
   state.schema = await api("/api/schema");
+}
+
+async function loadViewOptions() {
+  try {
+    state.viewOptions = await api("/api/view-options");
+  } catch (e) {
+    state.viewOptions = { luts: ["default", "viridis", "gray", "inferno", "magma"] };
+  }
 }
 
 async function loadSessions() {
@@ -297,7 +323,95 @@ async function selectScan(scanId) {
   state.currentScanId = scanId;
   renderScanList();
   const scan = await api(`/api/scan/${encodeURIComponent(scanId)}`);
+  state.currentScan = scan;
   renderDetail(scan);
+}
+
+function scanChannels(scan) {
+  const channels = Array.isArray(scan.channels) ? scan.channels : [];
+  if (!channels.length) return ["Z", "Current"];
+  return channels.map(ch => typeof ch === "string" ? ch : ch.name).filter(Boolean);
+}
+
+function channelHasBackward(scan, channelName) {
+  const channels = Array.isArray(scan.channels) ? scan.channels : [];
+  const info = channels.find(ch => typeof ch !== "string" && ch.name === channelName);
+  return !info || String(info.direction || "both").toLowerCase() === "both";
+}
+
+function viewSetting(name, fallback) {
+  const value = state.viewSettings[name];
+  return value === undefined || value === null || value === "" ? fallback : value;
+}
+
+function renderViewerControls(scan) {
+  const channels = scanChannels(scan);
+  const selectedChannel = channels.includes(state.viewSettings.channel)
+    ? state.viewSettings.channel
+    : (channels.includes("Z") ? "Z" : channels[0]);
+  state.viewSettings.channel = selectedChannel;
+  const lutOptions = (state.viewOptions.luts || ["default", "viridis", "gray", "inferno", "magma"])
+    .map(name => `<option value="${escapeHtml(name)}"${viewSetting("lut", "default") === name ? " selected" : ""}>${escapeHtml(name)}</option>`)
+    .join("");
+  const channelOptions = channels.map(name =>
+    `<option value="${escapeHtml(name)}"${selectedChannel === name ? " selected" : ""}>${escapeHtml(name)}</option>`
+  ).join("");
+  const mode = viewSetting("mode", "forward");
+  const orientation = viewSetting("orientation", "auto");
+  const size = viewSetting("size", "medium");
+  const clip = viewSetting("percentileClip", "1");
+  return `
+    <div class="viewer-panel">
+      <div class="viewer-grid">
+        <label>Channel
+          <select id="viewChannel">${channelOptions}</select>
+        </label>
+        <label>Direction
+          <select id="viewMode">
+            <option value="forward"${mode === "forward" ? " selected" : ""}>Forward</option>
+            <option value="backward"${mode === "backward" ? " selected" : ""}>Backward</option>
+            <option value="side_by_side"${mode === "side_by_side" ? " selected" : ""}>Side-by-side</option>
+            <option value="difference"${mode === "difference" ? " selected" : ""}>Difference</option>
+          </select>
+        </label>
+        <label>Orientation
+          <select id="viewOrientation">
+            <option value="auto"${orientation === "auto" ? " selected" : ""}>Auto</option>
+            <option value="original"${orientation === "original" ? " selected" : ""}>Original</option>
+            <option value="flip_y"${orientation === "flip_y" ? " selected" : ""}>Flip Y</option>
+            <option value="flip_x"${orientation === "flip_x" ? " selected" : ""}>Flip X</option>
+            <option value="rotate_90"${orientation === "rotate_90" ? " selected" : ""}>Rotate 90</option>
+            <option value="rotate_180"${orientation === "rotate_180" ? " selected" : ""}>Rotate 180</option>
+            <option value="rotate_270"${orientation === "rotate_270" ? " selected" : ""}>Rotate 270</option>
+          </select>
+        </label>
+        <label>Size
+          <select id="viewSize">
+            <option value="small"${size === "small" ? " selected" : ""}>Small</option>
+            <option value="medium"${size === "medium" ? " selected" : ""}>Medium</option>
+            <option value="large"${size === "large" ? " selected" : ""}>Large</option>
+            <option value="full"${size === "full" ? " selected" : ""}>Full width</option>
+          </select>
+        </label>
+        <label>LUT
+          <select id="viewLut">${lutOptions}</select>
+        </label>
+        <label>Contrast clip <span id="clipValue">${escapeHtml(clip)}</span>%
+          <input id="viewClip" type="range" min="0" max="5" step="0.5" value="${escapeHtml(clip)}" />
+        </label>
+        <label>Manual min
+          <input id="viewMin" type="number" step="any" value="${escapeHtml(viewSetting("vmin", ""))}" placeholder="auto" />
+        </label>
+        <label>Manual max
+          <input id="viewMax" type="number" step="any" value="${escapeHtml(viewSetting("vmax", ""))}" placeholder="auto" />
+        </label>
+      </div>
+      <div class="viewer-checks">
+        <label><input id="viewColorbar" type="checkbox" ${viewSetting("showColorbar", true) ? "checked" : ""}/> colorbar</label>
+        <label><input id="viewPlane" type="checkbox" ${viewSetting("planeSubtract", true) ? "checked" : ""}/> processed / plane subtraction</label>
+      </div>
+      <div class="viewer-status" id="viewerStatus"></div>
+    </div>`;
 }
 
 function fieldInput(name, def, currentVal) {
@@ -368,12 +482,11 @@ function renderDetail(scan) {
       · range=${(scan.range_x_m * 1e9).toFixed(1)}×${(scan.range_y_m * 1e9).toFixed(1)} nm
       <br/>sxm: <code>${scan.sxm_path}</code>
     </div>
-    <img id="preview" src="/preview/${encodeURIComponent(scan.scan_id)}.png"
-         onerror="this.style.display='none';this.insertAdjacentHTML('afterend','<em>(no preview)</em>')"/>
+    ${renderViewerControls(scan)}
+    <img id="preview" class="preview-${escapeHtml(viewSetting("size", "medium"))}"
+         data-fallback="/preview/${encodeURIComponent(scan.scan_id)}.png" alt="scan preview" />
     <form id="labelForm">
       ${formRows}
-      <label>annotator_notes<br/><small>(自由备注, review 时可见)</small></label>
-      <textarea name="annotator_notes">${escapeHtml(myLabel.annotator_notes ?? "")}</textarea>
       <div class="actions">
         <button type="submit">保存我的标签</button>
         <button type="button" class="secondary" id="nextBtn">保存并下一张 →</button>
@@ -386,6 +499,8 @@ function renderDetail(scan) {
     </div>
   `;
 
+  setupViewerControls(scan);
+
   $("labelForm").addEventListener("submit", (e) => { e.preventDefault(); saveLabel(false); });
   $("nextBtn").addEventListener("click", () => saveLabel(true));
 
@@ -395,6 +510,98 @@ function renderDetail(scan) {
       submitReview(f.dataset.scanId, f.dataset.annotator, f);
     });
   });
+}
+
+function setupViewerControls(scan) {
+  const ids = ["viewChannel", "viewMode", "viewOrientation", "viewSize", "viewLut",
+               "viewClip", "viewMin", "viewMax", "viewColorbar", "viewPlane"];
+  ids.forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    const evt = el.type === "range" ? "input" : "change";
+    el.addEventListener(evt, () => {
+      saveViewSettingsFromControls();
+      updateViewModeAvailability(scan);
+      updatePreviewImage(scan);
+    });
+  });
+  const img = $("preview");
+  img.onerror = () => {
+    if (img.dataset.triedFallback !== "1") {
+      img.dataset.triedFallback = "1";
+      img.src = img.dataset.fallback;
+    } else {
+      img.style.display = "none";
+      img.insertAdjacentHTML("afterend", "<em>(no preview)</em>");
+    }
+  };
+  updateViewModeAvailability(scan);
+  updatePreviewImage(scan);
+}
+
+function saveViewSettingsFromControls() {
+  state.viewSettings = {
+    channel: $("viewChannel")?.value || "",
+    mode: $("viewMode")?.value || "forward",
+    orientation: $("viewOrientation")?.value || "auto",
+    size: $("viewSize")?.value || "medium",
+    lut: $("viewLut")?.value || "default",
+    percentileClip: $("viewClip")?.value || "1",
+    vmin: $("viewMin")?.value || "",
+    vmax: $("viewMax")?.value || "",
+    showColorbar: Boolean($("viewColorbar")?.checked),
+    planeSubtract: Boolean($("viewPlane")?.checked),
+  };
+  localStorage.setItem("stm_view_settings", JSON.stringify(state.viewSettings));
+}
+
+function updateViewModeAvailability(scan) {
+  const channel = $("viewChannel")?.value || state.viewSettings.channel;
+  const hasBackward = channelHasBackward(scan, channel);
+  ["backward", "side_by_side", "difference"].forEach(value => {
+    const opt = Array.from($("viewMode").options).find(o => o.value === value);
+    if (opt) opt.disabled = !hasBackward;
+  });
+  if (!hasBackward && ["backward", "side_by_side", "difference"].includes($("viewMode").value)) {
+    $("viewMode").value = "forward";
+    saveViewSettingsFromControls();
+  }
+  const status = $("viewerStatus");
+  if (status) {
+    status.textContent = hasBackward
+      ? "可查看 forward / backward / side-by-side / difference"
+      : "该 channel 未声明 backward 数据，已限制为 forward";
+  }
+}
+
+function updatePreviewImage(scan) {
+  const img = $("preview");
+  if (!img) return;
+  const clip = $("viewClip")?.value || "1";
+  const clipLabel = $("clipValue");
+  if (clipLabel) clipLabel.textContent = clip;
+  const size = $("viewSize")?.value || "medium";
+  img.className = `preview-${size}`;
+  img.style.display = "block";
+  img.dataset.triedFallback = "0";
+  img.src = imageUrl(scan.scan_id);
+}
+
+function imageUrl(scanId) {
+  const params = new URLSearchParams({
+    channel: $("viewChannel")?.value || viewSetting("channel", ""),
+    mode: $("viewMode")?.value || viewSetting("mode", "forward"),
+    orientation: $("viewOrientation")?.value || viewSetting("orientation", "auto"),
+    lut: $("viewLut")?.value || viewSetting("lut", "default"),
+    percentile_clip: $("viewClip")?.value || viewSetting("percentileClip", "1"),
+    show_colorbar: $("viewColorbar")?.checked ? "1" : "0",
+    plane_subtract: $("viewPlane")?.checked ? "1" : "0",
+  });
+  const vmin = $("viewMin")?.value;
+  const vmax = $("viewMax")?.value;
+  if (vmin) params.set("vmin", vmin);
+  if (vmax) params.set("vmax", vmax);
+  return `/api/image/${encodeURIComponent(scanId)}.png?${params.toString()}`;
 }
 
 function renderLabelCard(l) {
@@ -663,6 +870,7 @@ $("importPathBtn").addEventListener("click", importFromPath);
 
 (async () => {
   await loadSchema();
+  await loadViewOptions();
   await loadSessions();
   await loadStats();
   await loadSessionOverview();

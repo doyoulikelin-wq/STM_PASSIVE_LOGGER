@@ -81,10 +81,24 @@
 | 区域 | 说明 |
 | --- | --- |
 | 元数据条 | 显示 session、sample、tip、operator、捕获时间、bias、setpoint、像素、范围、`.sxm` 路径。 |
-| PNG 预览 | 显示 `preview_path` 对应的图。优先 Z forward，其次 Current / LI。 |
+| 图像查看器 | 从归档 `.sxm` 动态渲染图像；如果没有 raw `.sxm`，会退回旧 PNG 预览。 |
 | 标注表单 | 当前标注者对这张图的标签。 |
 | 其他标注者 | 展示别人对同一张图的标签，并可 review。 |
 | 我的当前标签 | 当前标注者已保存过时显示自己的历史标签。 |
+
+图像查看器控件：
+
+| 控件 | 作用 |
+| --- | --- |
+| `Channel` | 切换 `.sxm` 中的通道，例如 `Z`、`Current`、`LI_Demod_1_X` 或其他 Nanonis channel。 |
+| `Direction` | `Forward`、`Backward`、`Side-by-side`、`Difference`。没有 backward 数据的 channel 会限制为 forward。 |
+| `Orientation` | `Auto` 根据 `SCAN_DIR=down` 自动上下翻转；也可手动 `Original`、`Flip Y`、`Flip X`、`Rotate 90/180/270`。 |
+| `Size` | `Small`、`Medium`、`Large`、`Full width`，只影响页面显示大小，不改数据。 |
+| `LUT` | `default`、`viridis`、`gray`、`inferno`、`magma`，也可在 assets/luts 中扩展 `.lut` 文件。 |
+| `Contrast clip` | percentile clipping，0 到 5%。数值越大，越压掉极端高低值，细节可能更清楚。 |
+| `Manual min/max` | 手动 colorbar 范围；留空表示自动。 |
+| `colorbar` | 显示或隐藏色标。 |
+| `processed / plane subtraction` | 勾选为去平面后的 processed 图；取消勾选为 raw image。 |
 
 ## 7. 标注字段和选项
 

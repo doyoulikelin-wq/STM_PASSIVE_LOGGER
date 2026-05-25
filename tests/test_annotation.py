@@ -30,6 +30,8 @@ def _write_synthetic_sxm(path: Path, nx: int = 4, ny: int = 3) -> Path:
         "\t0.000E+0 0.000E+0\n"
         ":SCAN_ANGLE:\n"
         "\t0\n"
+        ":SCAN_DIR:\n"
+        "\tup\n"
         ":BIAS:\n"
         "\t1.0\n"
         ":Z-CONTROLLER:\n"
@@ -436,6 +438,30 @@ def test_import_path_endpoint_registers_sxm_and_preview(tmp_path: Path) -> None:
         with urllib.request.urlopen(req, timeout=5) as resp:
             assert resp.status == 200
             assert resp.headers["Content-Type"] == "image/png"
+
+        status, body = _http_json("GET", f"{base}/api/view-options")
+        assert status == 200
+        assert "default" in body["luts"]
+
+        image_url = (
+            f"{base}/api/image/{scan_id}.png?channel=Z&mode=side_by_side"
+            "&orientation=auto&lut=default&percentile_clip=1&show_colorbar=1"
+            "&plane_subtract=1"
+        )
+        with urllib.request.urlopen(image_url, timeout=10) as resp:
+            assert resp.status == 200
+            assert resp.headers["Content-Type"] == "image/png"
+            assert resp.read(8) == b"\x89PNG\r\n\x1a\n"
+
+        diff_url = f"{base}/api/image/{scan_id}.png?channel=Z&mode=difference&lut=gray"
+        with urllib.request.urlopen(diff_url, timeout=10) as resp:
+            assert resp.status == 200
+            assert resp.read(8) == b"\x89PNG\r\n\x1a\n"
+
+        status, body = _http_json(
+            "GET", f"{base}/api/image/{scan_id}.png?channel=Current&mode=backward")
+        assert status == 400
+        assert "backward" in body["error"]
     finally:
         server.shutdown()
         server.server_close()

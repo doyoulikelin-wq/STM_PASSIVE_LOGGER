@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..config import load_yaml
+from ..data_collection.preview import available_luts
 from ..data_collection.sxm_importer import import_sxm_folder, import_sxm_upload
+from .image_view import render_scan_image, settings_from_query
 from .store import AnnotationStore
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ def _make_handler(store: AnnotationStore, schema: Dict[str, Any]):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
 
@@ -107,6 +110,15 @@ def _make_handler(store: AnnotationStore, schema: Dict[str, Any]):
                     return self._send_bytes(200, body, "text/html; charset=utf-8")
                 if path == "/api/schema":
                     return self._send_json(200, schema)
+                if path == "/api/view-options":
+                    return self._send_json(200, {
+                        "luts": available_luts(),
+                        "modes": ["forward", "backward", "side_by_side", "difference"],
+                        "orientations": [
+                            "auto", "original", "flip_y", "flip_x",
+                            "rotate_90", "rotate_180", "rotate_270",
+                        ],
+                    })
                 if path == "/api/sessions":
                     return self._send_json(200, store.list_sessions())
                 if path == "/api/stats":
@@ -135,7 +147,16 @@ def _make_handler(store: AnnotationStore, schema: Dict[str, Any]):
                     if png_path is None:
                         return self._send_bytes(404, b"no preview", "text/plain")
                     return self._send_bytes(200, png_path.read_bytes(), "image/png")
+                if path.startswith("/api/image/") and path.endswith(".png"):
+                    scan_id = urllib.parse.unquote(path[len("/api/image/"):-len(".png")])
+                    sxm_path = store.resolve_sxm(scan_id)
+                    if sxm_path is None:
+                        return self._send_bytes(404, b"no sxm", "text/plain")
+                    png = render_scan_image(sxm_path, settings_from_query(query))
+                    return self._send_bytes(200, png, "image/png")
                 return self._send_json(404, {"error": "not found", "path": path})
+            except (ValueError, KeyError) as exc:
+                return self._send_json(400, {"error": str(exc)})
             except Exception as exc:  # noqa: BLE001
                 logger.exception("GET %s failed", path)
                 return self._send_json(500, {"error": f"{type(exc).__name__}: {exc}"})

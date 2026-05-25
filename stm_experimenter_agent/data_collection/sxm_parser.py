@@ -54,6 +54,7 @@ class SxmFile:
     scan_range_m: Tuple[float, float] = (0.0, 0.0)
     scan_offset_m: Tuple[float, float] = (0.0, 0.0)
     scan_angle_deg: float = 0.0
+    scan_dir: Optional[str] = None
     bias_V: Optional[float] = None
     setpoint: Optional[float] = None              # raw setpoint, unit in setpoint_unit
     setpoint_unit: Optional[str] = None
@@ -77,6 +78,7 @@ class SxmFile:
             "scan_range_m": list(self.scan_range_m),
             "scan_offset_m": list(self.scan_offset_m),
             "scan_angle_deg": self.scan_angle_deg,
+            "scan_dir": self.scan_dir,
             "bias_V": self.bias_V,
             "setpoint": self.setpoint,
             "setpoint_unit": self.setpoint_unit,
@@ -240,6 +242,8 @@ def parse_sxm_header(path: Path | str, *, max_header_bytes: int = 2 * 1024 * 102
             sxm.scan_angle_deg = float(tags["SCAN_ANGLE"].split()[0])
         except (ValueError, IndexError):
             pass
+    if "SCAN_DIR" in tags:
+        sxm.scan_dir = tags["SCAN_DIR"].strip().split()[0].lower() or None
     if "BIAS" in tags:
         try:
             sxm.bias_V = float(tags["BIAS"].split()[0])
