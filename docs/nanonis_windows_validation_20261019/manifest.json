@@ -1,0 +1,93 @@
+{
+  "schema": "nanonis_publication_manifest_v1",
+  "published_date": "2026-10-19",
+  "timezone": "Asia/Shanghai",
+  "source_repository": "https://github.com/doyoulikelin-wq/STM_PASSIVE_LOGGER",
+  "source_commit": "b110d1e67a2ad863c53464447ca291f8a0550904",
+  "source_report_sha256": "6c2b690561ac402ca7be7907ad7014d2c4898acbf3239bfb99fe7d00985ae7f1",
+  "source_files_modified": false,
+  "purpose": "Historical verification evidence, not an automatic approach tool",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 4388,
+      "sha256": "c1bd71e7f726fabdd626a69b3c4246f465a7da71d57af31256160b7ad7a88ab4"
+    },
+    {
+      "path": "evidence.tar.gz",
+      "bytes": 1134417,
+      "sha256": "db4ff240cf5bc8354f2fd8aa76090b9509a5533d5e1e6abcfb758d6660498ed4"
+    },
+    {
+      "path": "report.html",
+      "bytes": 999918,
+      "sha256": "bbd2cf2e07ca39f7800a54e89c6164a234e557ea2ca455a874cb2223a199fabe"
+    },
+    {
+      "path": "实时信号128路.csv",
+      "bytes": 8018,
+      "sha256": "8530c29d000cefc0076abedb0240b2c914dcbb24d38c877167abc6dcf5da1818"
+    },
+    {
+      "path": "接口控制动作记录.csv",
+      "bytes": 1196,
+      "sha256": "56ce2717b66c54ca431a78448782d1b8f77fb2e75642d834ecef691e1147d0f9"
+    },
+    {
+      "path": "频谱完整数据_两次读取.csv",
+      "bytes": 61699,
+      "sha256": "519d387361e51cfbfad09e8a9ff0d317132586f94ef413e9c89da1a8ad907127"
+    }
+  ],
+  "archive": {
+    "path": "evidence.tar.gz",
+    "sha256": "db4ff240cf5bc8354f2fd8aa76090b9509a5533d5e1e6abcfb758d6660498ed4",
+    "bytes": 1134417,
+    "members": 7185,
+    "index_path": "archive_index.json",
+    "index_sha256": "6025872dbeea6f4e469e38bdf9892862d9ed58f29616c4191dda7d8bcc451607",
+    "index_excludes_itself": true,
+    "withheld_raw_packets": [
+      {
+        "original_archive_path": "all_reads/266_Util.SessionPathGet_response.bin",
+        "original_sha256": "a0ca7c7a06723d406428717e9750c2088b0f3767724b7431083aeba300712214",
+        "original_bytes": 82,
+        "raw_packet_published": false,
+        "reason": "Raw reply contains a private machine path or connection/session identifier. Original bytes remain unchanged in local evidence.",
+        "verification_limit": "This command cannot be re-decoded or its raw hash recomputed from the publication package. This JSON is an explicit withholding notice, not a successful protocol response."
+      },
+      {
+        "original_archive_path": "preflight/019_Util.SessionPathGet_response.bin",
+        "original_sha256": "a0ca7c7a06723d406428717e9750c2088b0f3767724b7431083aeba300712214",
+        "original_bytes": 82,
+        "raw_packet_published": false,
+        "reason": "Raw reply contains a private machine path or connection/session identifier. Original bytes remain unchanged in local evidence.",
+        "verification_limit": "This command cannot be re-decoded or its raw hash recomputed from the publication package. This JSON is an explicit withholding notice, not a successful protocol response."
+      }
+    ]
+  },
+  "redaction_counts": {
+    "claim_path": 14,
+    "link_local_address": 0,
+    "user_home": 0,
+    "windows_user_home": 0,
+    "windows_root": 8,
+    "windows_session_path": 6,
+    "structured_endpoint": 14,
+    "structured_source_ip": 14,
+    "structured_interface": 14,
+    "workspace_prefix": 760,
+    "structured_session_directory": 1,
+    "session_directory": 2
+  },
+  "exclusions_summary": {
+    "Python cache omitted": 2,
+    "Console log omitted": 2,
+    "All local scripts omitted; no hardware-control executables are distributed": 14,
+    "Windows screenshot omitted": 1,
+    "Windows screen/window-session metadata omitted": 1,
+    "Duplicate extraction of already-published Demo sources omitted": 2
+  },
+  "hash_semantics": "Published file/member hashes refer to published bytes. Original QA and source hashes remain references to unchanged local originals. manifest.json is not self-hashed to avoid a circular definition.",
+  "publication_text_format": "Top-level HTML/Markdown trailing whitespace removed; CSV CRLF normalized to LF. Data values unchanged. Archive members retain their recorded bytes."
+}

@@ -1,0 +1,8 @@
+﻿at,actor,source,attempt,command,args,ack,transaction_id,physical_completion_from_ack
+2026-10-19T06:46:57.821439+00:00,agent,direct TCP action audit,approach_validation,AutoApproach.OnOffSet,[1],True,4038ef85-d2a4-4f7a-94f2-d2302b0b74bf,False
+2026-10-19T06:47:00.107180+00:00,agent,direct TCP action audit,approach_validation,AutoApproach.OnOffSet,[0],True,8ed701a2-7332-46f8-a0c2-f1c021da4f11,False
+2026-10-19T06:47:00.193412+00:00,agent,direct TCP action audit,approach_validation,ZCtrl.Withdraw,"[1, 2000]",True,949ec670-02c2-4586-83f0-56956e40d20b,False
+2026-10-19T06:47:22.314331+00:00,agent,direct TCP action audit,approach_validation,ZCtrl.Withdraw,"[1, 2000]",True,bac93a6f-0005-46a8-8861-27715a14c19e,False
+2026-10-19T06:48:59.620538+00:00,agent,direct TCP action audit,approach_validation_2,AutoApproach.OnOffSet,[1],True,7888aac1-7943-421c-a608-a43f7c25c53e,False
+2026-10-19T06:49:59.817456+00:00,agent,direct TCP action audit,approach_validation_2,AutoApproach.OnOffSet,[0],True,6b78d6b4-528e-4e51-9d34-c13f58588ff0,False
+2026-10-19T06:50:00.960257+00:00,agent,direct TCP action audit,approach_validation_2,ZCtrl.Withdraw,"[1, 2000]",True,367d80f0-5ca0-4512-956a-875d991d66a9,False
